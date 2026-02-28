@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>motor</name>
+  <version>0.1.0</version>
+  <description>Motor control library with pluggable drivers (CAN, PWM, UART) for servos and joint control</description>
+  <system_depend check="dpkg -s libboost-dev">libboost-dev</system_depend>
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

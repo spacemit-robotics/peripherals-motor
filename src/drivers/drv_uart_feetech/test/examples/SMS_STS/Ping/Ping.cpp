@@ -1,0 +1,24 @@
+#include <iostream>
+#include "SCServo.h"
+
+SMS_STS sms_sts;
+
+int main(int argc, char ** argv) {
+    if (argc < 2) {
+        std::cout << "argc error! "<< std::endl;
+        return 0;
+    }
+    std::cout << "serial:" << argv[1] << std::endl;
+    if (!sms_sts.begin(1000000, argv[1])) {
+        std::cout << "Failed to init sms / sts motor! "<< std::endl;
+        return 0;
+    }
+    int ID = sms_sts.Ping(1);
+    if (ID != -1) {
+        std::cout << "ID:" << ID << std::endl;
+    } else {
+        std::cout << "Ping servo ID error! "<< std::endl;
+    }
+    sms_sts.end();
+    return 1;
+}
