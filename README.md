@@ -93,7 +93,7 @@ make -j$(nproc)
 #### UART 舵机测试
 ```bash
 # UART 舵机测试
-./build/test_uart_feetech /dev/ttyACM1 1000000 1
+./build/test_motor_uart /dev/ttyACM1 1000000 1
 
 
 ```
