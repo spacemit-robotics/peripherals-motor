@@ -91,10 +91,8 @@ int main() {
 **运行测试程序：**
 ```bash
 # 位置/速度控制测试
-sudo ./test_uart_feetech /dev/ttyACM1 1000000
+sudo ./test_motor_uart /dev/ttyACM1 1000000
 
-# 模式读取测试
-sudo ./test_mode /dev/ttyACM1 1
 ```
 
 ## 详细使用
@@ -393,14 +391,7 @@ sudo ./WritePos /dev/ttyACM1
 ---
 
 ## 附录：技术细节
-
-### 电机 ID 编码规则
-
-电机 ID 必须编码到波特率参数中：
-```c
-uint32_t encoded_baud = (baud & 0xFFFFFF00) | motor_id;
-// 示例：波特率 1000000，ID=1
-// encoded_baud = (1000000 & 0xFFFFFF00) | 1 = 0x000F4200 | 0x01 = 0x000F4201
+### 独立功能验证
 ```
 
 ### 示例程序列表
