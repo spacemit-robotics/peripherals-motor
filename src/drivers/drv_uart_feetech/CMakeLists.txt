@@ -6,6 +6,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Option to enable debug tools
+option(DEBUG "Enable debug tools compilation" OFF)
+
 # Get all source files
 file(GLOB FEETECH_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 file(GLOB FEETECH_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -21,37 +24,42 @@ set(MOTOR_FRAMEWORK_SRCS
 )
 
 # test_simple executable (motor framework integration test)
-add_executable(test_simple
+add_executable(test_motor_uart
   test/test_simple.c
   ${FEETECH_SRCS}
   ${MOTOR_FRAMEWORK_SRCS}
 )
 
-target_include_directories(test_simple PRIVATE
+target_include_directories(test_motor_uart PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../include  # motor.h framework
   ${CMAKE_CURRENT_SOURCE_DIR}/../../            # motor_core.h
 )
-target_link_libraries(test_simple pthread)
+target_link_libraries(test_motor_uart pthread)
 
 
 
 # test_debug executable (communication debugging tool)
-add_executable(test_debug
-  test/test_debug.cpp
-  ${FEETECH_SRCS}
-)
+if(DEBUG)
+  add_executable(test_debug
+    test/test_debug.cpp
+    ${FEETECH_SRCS}
+  )
 
-target_include_directories(test_debug PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-target_link_libraries(test_debug pthread)
+  target_include_directories(test_debug PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(test_debug pthread)
+endif()
 
 
 # Install (optional)
-install(TARGETS test_simple test_debug RUNTIME DESTINATION bin)
+install(TARGETS test_motor_uart RUNTIME DESTINATION bin)
+if(DEBUG)
+  install(TARGETS test_debug RUNTIME DESTINATION bin)
+endif()
 install(DIRECTORY include/ DESTINATION include/feetech)
 
 # Debug: Print include paths

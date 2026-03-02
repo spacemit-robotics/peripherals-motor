@@ -93,17 +93,13 @@ make -j$(nproc)
 #### UART 舵机测试
 ```bash
 # UART 舵机测试
-./build/test_uart_feetech /dev/ttyACM1 1000000 1
+./build/test_motor_uart /dev/ttyACM1 1000000 1
 
 
 ```
 **注意**：电机波特率与串口波特率必须一致，电机 ID 必须与硬件 ID 匹配
 
-#### EtherCAT 电机测试
-```bash
-# EtherCAT 电机测试
-./build/test_motor_ecat
-```
+
 
 ## 详细使用
 
