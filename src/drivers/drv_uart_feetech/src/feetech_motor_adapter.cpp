@@ -126,6 +126,13 @@ static int feetech_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
+    // 特殊处理：MOTOR_MODE_IDLE 表示关闭扭矩（卸力）
+    if (cmd->mode == MOTOR_MODE_IDLE) {
+        priv->pack->get_sms_sts().EnableTorque(priv->motor_id, 0);  // 关闭扭矩
+        priv->current_mode = MOTOR_MODE_IDLE;
+        return 0;
+    }
+
     // 检查模式是否匹配，不匹配则切换模式(掉电丢失)
     if (cmd->mode != priv->current_mode) {
         ModeSwitcher switcher(priv->pack->get_sms_sts());
@@ -208,12 +215,56 @@ static void feetech_free(struct motor_dev *dev) {
     free(dev);
 }
 
+// ==============================================================================
+// Register access callbacks (for calibration / diagnostics)
+// ==============================================================================
+
+static int feetech_reg_read_byte(struct motor_dev *dev, uint8_t addr) {
+    if (!dev || !dev->priv_data) return -1;
+    FeetechPrivData *priv = reinterpret_cast<FeetechPrivData *>(dev->priv_data);
+    if (!priv->pack) return -1;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    int ret = priv->pack->get_sms_sts().readByte(priv->motor_id, addr);
+    return (ret >= 0) ? ret : -1;  // Keep value on success, -1 on error
+}
+
+static int feetech_reg_write_byte(struct motor_dev *dev, uint8_t addr, uint8_t val) {
+    if (!dev || !dev->priv_data) return -1;
+    FeetechPrivData *priv = reinterpret_cast<FeetechPrivData *>(dev->priv_data);
+    if (!priv->pack) return -1;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    int ret = priv->pack->get_sms_sts().writeByte(priv->motor_id, addr, val);
+    return (ret == 1) ? 0 : -1;  // SDK returns 1 on success, convert to 0
+}
+
+static int feetech_reg_read_word(struct motor_dev *dev, uint8_t addr) {
+    if (!dev || !dev->priv_data) return -1;
+    FeetechPrivData *priv = reinterpret_cast<FeetechPrivData *>(dev->priv_data);
+    if (!priv->pack) return -1;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    int ret = priv->pack->get_sms_sts().readWord(priv->motor_id, addr);
+    return (ret >= 0) ? ret : -1;  // Keep value on success, -1 on error
+}
+
+static int feetech_reg_write_word(struct motor_dev *dev, uint8_t addr, uint16_t val) {
+    if (!dev || !dev->priv_data) return -1;
+    FeetechPrivData *priv = reinterpret_cast<FeetechPrivData *>(dev->priv_data);
+    if (!priv->pack) return -1;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    int ret = priv->pack->get_sms_sts().writeWord(priv->motor_id, addr, val);
+    return (ret == 1) ? 0 : -1;  // SDK returns 1 on success, convert to 0
+}
+
 // 虚函数表
 static const struct motor_ops feetech_ops = {
     .init = feetech_init,
     .set_cmd = feetech_set_cmd,
     .get_state = feetech_get_state,
     .free = feetech_free,
+    .reg_read_byte = feetech_reg_read_byte,
+    .reg_write_byte = feetech_reg_write_byte,
+    .reg_read_word = feetech_reg_read_word,
+    .reg_write_word = feetech_reg_write_word,
 };
 
 // ==============================================================================

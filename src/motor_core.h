@@ -47,6 +47,11 @@ struct motor_ops {
     int (*set_cmd)(struct motor_dev *dev, const struct motor_cmd *cmd);
     int (*get_state)(struct motor_dev *dev, struct motor_state *state);
     void (*free)(struct motor_dev *dev);
+    /* Optional: direct register access (for calibration / diagnostics) */
+    int (*reg_read_byte)(struct motor_dev *dev, uint8_t addr);
+    int (*reg_write_byte)(struct motor_dev *dev, uint8_t addr, uint8_t val);
+    int (*reg_read_word)(struct motor_dev *dev, uint8_t addr);
+    int (*reg_write_word)(struct motor_dev *dev, uint8_t addr, uint16_t val);
 };
 
 /* 4. 电机对象定义 */

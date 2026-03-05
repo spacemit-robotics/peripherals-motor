@@ -101,6 +101,13 @@ static inline int motor_get_state_one(struct motor_dev *dev,
     return motor_get_states(&dev, state, 1);
 }
 
+/* --- direct register access (for calibration / diagnostics) --- */
+
+int motor_reg_read_byte(struct motor_dev *dev, uint8_t addr);
+int motor_reg_write_byte(struct motor_dev *dev, uint8_t addr, uint8_t val);
+int motor_reg_read_word(struct motor_dev *dev, uint8_t addr);
+int motor_reg_write_word(struct motor_dev *dev, uint8_t addr, uint16_t val);
+
 #ifdef __cplusplus
 }
 #endif

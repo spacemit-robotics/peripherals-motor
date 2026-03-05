@@ -115,3 +115,29 @@ void motor_free(struct motor_dev **devs, uint32_t count) {
         }
     }
 }
+
+/* --- Direct register access API --- */
+
+int motor_reg_read_byte(struct motor_dev *dev, uint8_t addr) {
+    if (!dev || !dev->ops || !dev->ops->reg_read_byte)
+        return -1;
+    return dev->ops->reg_read_byte(dev, addr);
+}
+
+int motor_reg_write_byte(struct motor_dev *dev, uint8_t addr, uint8_t val) {
+    if (!dev || !dev->ops || !dev->ops->reg_write_byte)
+        return -1;
+    return dev->ops->reg_write_byte(dev, addr, val);
+}
+
+int motor_reg_read_word(struct motor_dev *dev, uint8_t addr) {
+    if (!dev || !dev->ops || !dev->ops->reg_read_word)
+        return -1;
+    return dev->ops->reg_read_word(dev, addr);
+}
+
+int motor_reg_write_word(struct motor_dev *dev, uint8_t addr, uint16_t val) {
+    if (!dev || !dev->ops || !dev->ops->reg_write_word)
+        return -1;
+    return dev->ops->reg_write_word(dev, addr, val);
+}
