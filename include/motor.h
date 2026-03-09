@@ -6,8 +6,8 @@
 #ifndef MOTOR_H
 #define MOTOR_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,11 +17,15 @@ extern "C" {
  * Motor control modes
  */
 enum motor_mode {
-    MOTOR_MODE_IDLE = 0,   /* disabled / freewheeling */
-    MOTOR_MODE_POS,        /* position closed-loop (rad) */
-    MOTOR_MODE_VEL,        /* velocity closed-loop (rad/s) */
-    MOTOR_MODE_TRQ,        /* pure torque control (Nm) */
-    MOTOR_MODE_HYBRID,     /* MIT-style impedance control */
+    MOTOR_MODE_IDLE = 0, /* disabled / freewheeling */
+    MOTOR_MODE_POS,      /* position closed-loop (rad) */
+    MOTOR_MODE_VEL,      /* velocity closed-loop (rad/s) */
+    MOTOR_MODE_TRQ,      /* pure torque control (Nm) */
+    MOTOR_MODE_HYBRID,   /* MIT-style impedance control */
+    MOTOR_MODE_CSP,      /* cyclic synchronous position */
+    MOTOR_MODE_CSV,      /* cyclic synchronous velocity */
+    MOTOR_MODE_CST,      /* cyclic synchronous torque */
+    MOTOR_MODE_HM,       /* homing, return to home position */
 };
 
 /*
@@ -35,11 +39,11 @@ enum motor_mode {
  */
 struct motor_cmd {
     uint32_t mode;
-    float    pos_des;
-    float    vel_des;
-    float    trq_des;
-    float    kp;
-    float    kd;
+    float pos_des;
+    float vel_des;
+    float trq_des;
+    float kp;
+    float kd;
 };
 
 /*
@@ -51,13 +55,12 @@ struct motor_cmd {
  * @err:  error flags
  */
 struct motor_state {
-    float    pos;
-    float    vel;
-    float    trq;
-    float    temp;
+    float pos;
+    float vel;
+    float trq;
+    float temp;
     uint32_t err;
 };
-
 
 /* opaque handle */
 struct motor_dev;
@@ -68,36 +71,40 @@ int motor_init(struct motor_dev **devs, uint32_t count);
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
                     uint32_t count);
 int motor_get_states(struct motor_dev **devs, struct motor_state *states,
-                    uint32_t count);
+                        uint32_t count);
 void motor_free(struct motor_dev **devs, uint32_t count);
+
+/* --- adjust parameters API --- */
+int motor_set_paras(struct motor_dev *dev, const void *address,
+                    const void *data, uint32_t data_len);
+
+int motor_get_paras(struct motor_dev *dev, const void *address, void *out_data,
+                    uint32_t data_len);
 
 /* --- factory functions --- */
 
 struct motor_dev *motor_alloc_pwm(const char *name, uint32_t ch, void *args);
 
 struct motor_dev *motor_alloc_can(const char *name, const char *iface,
-                                uint32_t can_id, void *args);
+                                    uint32_t can_id, void *args);
 struct motor_dev *motor_alloc_uart(const char *name, const char *dev_path,
-                                uint32_t baud, uint8_t id, void *args);
+                                    uint32_t baud, uint8_t id, void *args);
 struct motor_dev *motor_alloc_ecat(const char *name, uint16_t slave_idx,
-                                void *args);
+                                    void *args);
 
 /* --- inline helpers for single motor --- */
 
-static inline int motor_init_one(struct motor_dev *dev)
-{
+static inline int motor_init_one(struct motor_dev *dev) {
     return motor_init(&dev, 1);
 }
 
 static inline int motor_set_cmd_one(struct motor_dev *dev,
-                                    const struct motor_cmd *cmd)
-{
+                                    const struct motor_cmd *cmd) {
     return motor_set_cmds(&dev, cmd, 1);
 }
 
 static inline int motor_get_state_one(struct motor_dev *dev,
-                                    struct motor_state *state)
-{
+                                        struct motor_state *state) {
     return motor_get_states(&dev, state, 1);
 }
 
