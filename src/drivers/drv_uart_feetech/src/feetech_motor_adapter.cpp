@@ -127,10 +127,12 @@ static int feetech_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
     std::lock_guard<std::mutex> lock(g_mutex);
 
     // 检查模式是否匹配，不匹配则切换模式(掉电丢失)
-    if (cmd->mode != priv->current_mode) {
+    // 框架层传递 pos vel - 1 2
+    // 实际 pos vel - 0 1，映射 - 1
+    if ((cmd->mode - 1) != priv->current_mode) {
         ModeSwitcher switcher(priv->pack->get_sms_sts());
-        switcher.switch_mode_temp(priv->data.id, cmd->mode);
-        priv->current_mode = cmd->mode;
+        switcher.switch_mode_temp(priv->data.id, (cmd->mode - 1));
+        priv->current_mode = cmd->mode - 1;
     }
 
     // 将 motor_cmd 转换为 FeetechData
