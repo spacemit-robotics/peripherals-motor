@@ -131,7 +131,6 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     // 检查模式是否匹配，不匹配则切换模式(掉电丢失)
     // 框架层传递 pos vel - 1 2
     // 实际 pos vel - 0 1，映射 - 1
-
     if (cmd->mode == MOTOR_MODE_IDLE) {
         if (!priv->is_idle) {  // 如果尚未处于卸力状态，则给底层发送卸力指令
             priv->pack->get_sms_sts().EnableTorque(priv->data.id, 0);
