@@ -27,6 +27,10 @@ Motor 组件是一个统一的电机控制框架，为不同类型的电机（PW
 - `MOTOR_MODE_TRQ` - 纯力矩控制（Nm）
 - `MOTOR_MODE_HYBRID` - MIT 风格阻抗控制
 
+### 额定参数配置
+- `motor_set_paras` - 写入电机底层参数
+- `motor_get_paras` - 读取电机底层参数
+
 ### API 特性
 - **向量化 API**：支持多电机批量操作
 - **单电机 API**：提供便捷的单电机操作接口
@@ -183,6 +187,17 @@ int motor_set_cmd_one(struct motor_dev *dev, const struct motor_cmd *cmd);
 // 单电机读取状态
 int motor_get_state_one(struct motor_dev *dev, struct motor_state *state);
 // dev: 电机设备, state: 状态结构体(输出)
+```
+
+**电机参数配置 API**
+```c
+// 写入电机底层参数 (寄存器或字典索引等)
+int motor_set_paras(struct motor_dev *dev, const void *address, const void *data, uint32_t data_len);
+// dev: 电机设备, address: 参数地址/索引指针, data: 待写入数据指针, data_len: 数据字节长度
+
+// 读取电机底层参数 (寄存器或字典索引等)
+int motor_get_paras(struct motor_dev *dev, const void *address, void *out_data, uint32_t data_len);
+// dev: 电机设备, address: 参数地址/索引指针, out_data: 读取数据缓冲区指针, data_len: 数据字节长度
 ```
 
 #### 控制模式说明
