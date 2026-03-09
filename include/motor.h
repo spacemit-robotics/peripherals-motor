@@ -18,8 +18,8 @@ extern "C" {
  */
 enum motor_mode {
     MOTOR_MODE_IDLE = 0,   /* disabled / freewheeling */
-    MOTOR_MODE_VEL,        /* velocity closed-loop (rad/s) */
     MOTOR_MODE_POS,        /* position closed-loop (rad) */
+    MOTOR_MODE_VEL,        /* velocity closed-loop (rad/s) */
     MOTOR_MODE_TRQ,        /* pure torque control (Nm) */
     MOTOR_MODE_HYBRID,     /* MIT-style impedance control */
 };
