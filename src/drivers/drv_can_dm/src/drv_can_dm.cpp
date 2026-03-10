@@ -7,9 +7,6 @@
  * dm_hw 驱动适配层 (drv_can_dm.cpp)
  */
 
-
-
-
 // C system headers
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,8 +25,7 @@ extern "C" {
 #include "pack_damiao.h"
 
 // 临时结构体，用于保存每个电机的配置信息
-struct dm_priv
-{
+struct dm_priv {
     // 假设配置信息在 probe 阶段就确定了
     char bus_name[32];
     uint16_t can_id;
@@ -41,16 +37,14 @@ struct dm_priv
 };
 
 // 初始化
-static int dm_init(struct motor_dev *dev)
-{
-    struct dm_priv *priv = (struct dm_priv *)dev->priv_data;
+static int dm_init(struct motor_dev* dev) {
+    struct dm_priv* priv = (struct dm_priv*)dev->priv_data;
 
     printf("Motor %s (CAN ID: 0x%02X) initializing...\n", dev->name, priv->can_id);
 
     // 在这里触发一次全局初始化
     // 注意：dm_driver_init_global 应该只运行一次，内部需要处理多次调用的情况
-    if (dm_driver_init_global() != 0)
-    {
+    if (dm_driver_init_global() != 0) {
         // 如果失败，可能是硬件问题或者配置问题
         // 这里只是单个电机 init 失败
         // 如果全局 DmHW init 失败，整个驱动都不可用
@@ -63,21 +57,17 @@ static int dm_init(struct motor_dev *dev)
 }
 
 // 发送命令
-static int dm_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd)
-{
-    struct dm_priv *priv = (struct dm_priv *)dev->priv_data;
+static int dm_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
+    struct dm_priv* priv = (struct dm_priv*)dev->priv_data;
 
     // 记录控制指令发送时间戳
     clock_gettime(CLOCK_MONOTONIC, &priv->cmd_send_time);
 
     // 如果是第一次发送指令，打印时间戳
-    if (!priv->cmd_sent)
-    {
+    if (!priv->cmd_sent) {
         printf("Motor %s (CAN ID: 0x%02X) first command sent at timestamp: "
                 "%ld.%09ld\n",
-                dev->name, priv->can_id,
-                priv->cmd_send_time.tv_sec,
-                priv->cmd_send_time.tv_nsec);
+            dev->name, priv->can_id, priv->cmd_send_time.tv_sec, priv->cmd_send_time.tv_nsec);
         priv->cmd_sent = true;
     }
 
@@ -109,21 +99,17 @@ static int dm_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd)
     // 如果需要支持多种模式，需要在 set_cmd 里动态切换，但 DmHW
     // 切换模式较慢（要写参数） 且实时性要求高，暂时只支持 MIT。
 
-    dm_driver_send_cmd(priv->bus_name, priv->can_id,
-                        cmd->pos_des, cmd->vel_des,
-                        cmd->trq_des, cmd->kp, cmd->kd);
+    dm_driver_send_cmd(priv->bus_name, priv->can_id, cmd->pos_des, cmd->vel_des, cmd->trq_des, cmd->kp, cmd->kd);
 
     return 0;
 }
 
 // 获取状态
-static int dm_get_state(struct motor_dev *dev, struct motor_state *state)
-{
-    struct dm_priv *priv = (struct dm_priv *)dev->priv_data;
+static int dm_get_state(struct motor_dev* dev, struct motor_state* state) {
+    struct dm_priv* priv = (struct dm_priv*)dev->priv_data;
 
     float pos, vel, trq;
-    if (dm_driver_get_state(priv->bus_name, priv->can_id, &pos, &vel, &trq) == 0)
-    {
+    if (dm_driver_get_state(priv->bus_name, priv->can_id, &pos, &vel, &trq) == 0) {
         state->pos = pos;
         state->vel = vel;
         state->trq = trq;
@@ -135,15 +121,12 @@ static int dm_get_state(struct motor_dev *dev, struct motor_state *state)
 }
 
 // 释放
-static void dm_release(struct motor_dev *dev)
-{
+static void dm_release(struct motor_dev* dev) {
     // 单个设备释放时，如果全局硬件接口已初始化，则执行电机失能并标定当前位置为零点。
-    if (g_motor_hw)
-    {
+    if (g_motor_hw) {
         disable_motors(g_motor_hw);
     }
-    if (dev->priv_data)
-    {
+    if (dev->priv_data) {
         free(dev->priv_data);
     }
     free(dev);
@@ -159,20 +142,17 @@ static const struct motor_ops dm_ops = {
 };
 
 // 探测函数
-static struct motor_dev *dm_probe(void *args)
-{
-    struct motor_args_can *params = (struct motor_args_can *)args;
+static struct motor_dev* dm_probe(void* args) {
+    struct motor_args_can* params = (struct motor_args_can*)args;
 
     // 分配设备结构体和私有数据
-    struct motor_dev *dev = (struct motor_dev *)calloc(1, sizeof(struct motor_dev));
-    if (!dev)
-    {
+    struct motor_dev* dev = (struct motor_dev*)calloc(1, sizeof(struct motor_dev));
+    if (!dev) {
         return NULL;
     }
 
-    struct dm_priv *priv = (struct dm_priv *)calloc(1, sizeof(struct dm_priv));
-    if (!priv)
-    {
+    struct dm_priv* priv = (struct dm_priv*)calloc(1, sizeof(struct dm_priv));
+    if (!priv) {
         free(dev);
         return NULL;
     }
@@ -210,16 +190,13 @@ static struct motor_dev *dm_probe(void *args)
 REGISTER_MOTOR_DRIVER("dm_can", DRV_TYPE_CAN, dm_probe);
 
 // 时间戳
-extern "C" int dm_get_cmd_timestamp(struct motor_dev *dev, struct timespec *timestamp)
-{
-    if (!dev || !dev->priv_data || !timestamp)
-    {
+extern "C" int dm_get_cmd_timestamp(struct motor_dev* dev, struct timespec* timestamp) {
+    if (!dev || !dev->priv_data || !timestamp) {
         return -1;
     }
 
-    struct dm_priv *priv = (struct dm_priv *)dev->priv_data;
-    if (!priv->initialized || !priv->cmd_sent)
-    {
+    struct dm_priv* priv = (struct dm_priv*)dev->priv_data;
+    if (!priv->initialized || !priv->cmd_sent) {
         return -1;  // 电机尚未初始化或未发送过控制指令
     }
 
@@ -227,32 +204,23 @@ extern "C" int dm_get_cmd_timestamp(struct motor_dev *dev, struct timespec *time
     return 0;
 }
 
-extern "C" void dm_print_cmd_info(struct motor_dev *dev)
-{
-    if (!dev || !dev->priv_data)
-    {
+extern "C" void dm_print_cmd_info(struct motor_dev* dev) {
+    if (!dev || !dev->priv_data) {
         printf("Invalid motor device\n");
         return;
     }
 
-    struct dm_priv *priv = (struct dm_priv *)dev->priv_data;
-    if (!priv->initialized)
-    {
+    struct dm_priv* priv = (struct dm_priv*)dev->priv_data;
+    if (!priv->initialized) {
         printf("Motor %s not initialized yet\n", dev->name);
         return;
     }
 
-    if (!priv->cmd_sent)
-    {
-        printf("Motor %s (CAN ID: 0x%02X, Bus: %s): No command sent yet\n",
-                dev->name, priv->can_id, priv->bus_name);
+    if (!priv->cmd_sent) {
+        printf("Motor %s (CAN ID: 0x%02X, Bus: %s): No command sent yet\n", dev->name, priv->can_id, priv->bus_name);
         return;
     }
 
-    printf("Motor %s (CAN ID: 0x%02X, Bus: %s):\n",
-            dev->name, priv->can_id, priv->bus_name);
-    printf("  Last command timestamp: %ld.%09ld seconds\n",
-            priv->cmd_send_time.tv_sec,
-            priv->cmd_send_time.tv_nsec);
+    printf("Motor %s (CAN ID: 0x%02X, Bus: %s):\n", dev->name, priv->can_id, priv->bus_name);
+    printf("  Last command timestamp: %ld.%09ld seconds\n", priv->cmd_send_time.tv_sec, priv->cmd_send_time.tv_nsec);
 }
-

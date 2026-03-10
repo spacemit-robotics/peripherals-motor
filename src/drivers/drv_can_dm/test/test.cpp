@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
  * SPDX-License-Identifier: Apache-2.0
- */ 
+ */
 
 #include <chrono>
 #include <csignal>
@@ -18,7 +18,7 @@ int main() {
     // 示例：配置一个连接在 can0 上的 DM4310 电机
     damiao::MotorConfig config1;
     config1.bus_name = "can0";
-    config1.can_id = 0x02;    // 电机 ID
+    config1.can_id = 0x02;     // 电机 ID
     config1.master_id = 0x12;  // 主机 ID (如果有)
     config1.motor_type = damiao::DM4310;
     config1.control_mode = damiao::MIT_MODE;  // 使用 MIT 模式
@@ -36,8 +36,7 @@ int main() {
         return -1;
     }
 
-    std::cout << "Initialization successful. Starting control loop..."
-                << std::endl;
+    std::cout << "Initialization successful. Starting control loop..." << std::endl;
 
     // 4. 设置运动参数
     // 这里设置让电机转 2.5 圈，耗时 6 秒
@@ -74,4 +73,3 @@ int main() {
 
     return 0;
 }
-

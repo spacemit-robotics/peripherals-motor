@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     int ret;
 
     /* 解析命令行参数 */
-    const char *dev_path = "/dev/ttyACM1";
+    const char *dev_path = "/dev/ttyACM0";
     uint32_t baud = 1000000;
 
     if (argc >= 2) {
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
     printf("=========================== IDLE ctl ================================\n");
     memset(cmds, 0, sizeof(cmds));
     for (i = 0; i < num_motors; i++) {
-        cmds[i].mode = MOTOR_MODE_IDLE;       /* 卸力模式 */
+        cmds[i].mode = MOTOR_MODE_IDLE;       /* IDLE 模式 */
         cmds[i].vel_des = 2400; /* 目标速度 */
     }
     ret = motor_set_cmds(motors, cmds, num_motors);
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
     // 停止电机
     memset(cmds, 0, sizeof(cmds));
     for (i = 0; i < num_motors; i++) {
-        cmds[i].mode = MOTOR_MODE_IDLE;    /*卸力模式 */
+        cmds[i].mode = MOTOR_MODE_IDLE;    /* IDLE 模式 */
         cmds[i].vel_des = 0; /* 目标速度 */
     }
     ret = motor_set_cmds(motors, cmds, num_motors);

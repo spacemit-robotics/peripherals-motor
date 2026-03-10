@@ -118,3 +118,5 @@ void ModeSwitcher::switch_mode_temp(uint8_t id, uint8_t mode) {
             << std::endl;
     }
 }
+
+

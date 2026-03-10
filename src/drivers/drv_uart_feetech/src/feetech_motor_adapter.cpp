@@ -35,7 +35,7 @@ int mode_flag = 0;  // 模式修改标志位
 // 电机私有数据
 struct FeetechPrivData {
     uint8_t motor_id;
-    uint8_t current_mode;  // 当前模式
+    uint8_t current_mode;  // 当前模
     FeetechData data;      // 当前状态数据
     FeetechPack* pack;     // 共享的 FeetechPack 实例指针
     bool is_idle;          // 标记是否处于空闲（卸力）状态
@@ -59,15 +59,14 @@ static FeetechPack* get_or_create_pack(const char* dev_path, uint32_t baud) {
 
     auto it = g_feetech_packs.find(key);
     if (it != g_feetech_packs.end()) {
-    return it->second;
+        return it->second;
     }
 
     // 创建新的 FeetechPack 实例
     FeetechPack* pack = new FeetechPack();
     if (!pack) {
-    std::cerr << "[Feetech] Failed to create FeetechPack instance!"
-                << std::endl;
-    return nullptr;
+        std::cerr << "[Feetech] Failed to create FeetechPack instance!" << std::endl;
+        return nullptr;
     }
 
     // 初始化
@@ -78,17 +77,15 @@ static FeetechPack* get_or_create_pack(const char* dev_path, uint32_t baud) {
     argv[1] = arg1;
 
     if (!pack->init_pack(2, argv)) {
-    std::cerr << "[Feetech] Failed to initialize FeetechPack for " << dev_path
-                << std::endl;
-    free(arg1);
-    delete pack;
-    return nullptr;
+        std::cerr << "[Feetech] Failed to initialize FeetechPack for " << dev_path << std::endl;
+        free(arg1);
+        delete pack;
+        return nullptr;
     }
 
     free(arg1);
     g_feetech_packs[key] = pack;
-    std::cout << "[Feetech] Initialized pack for device: " << dev_path
-            << std::endl;
+    std::cout << "[Feetech] Initialized pack for device: " << dev_path << std::endl;
 
     return pack;
 }
@@ -134,6 +131,7 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     // 检查模式是否匹配，不匹配则切换模式(掉电丢失)
     // 框架层传递 pos vel - 1 2
     // 实际 pos vel - 0 1，映射 - 1
+
     if (cmd->mode == MOTOR_MODE_IDLE) {
         if (!priv->is_idle) {  // 如果尚未处于卸力状态，则给底层发送卸力指令
             priv->pack->get_sms_sts().EnableTorque(priv->data.id, 0);
@@ -147,14 +145,8 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
         // 从 IDLE 恢复到控制模式，重新使能扭矩
         priv->pack->get_sms_sts().EnableTorque(priv->data.id, 1);
         priv->is_idle = false;
-   }
-
-    // 非掉电模式确保扭矩有效
-    if (priv->is_idle) {
-	    // 从 IDLE 恢复到控制模式，重新使能扭矩
-	    priv->pack->get_sms_sts().EnableTorque(priv->data.id, 1);
-	    priv->is_idle = false;
     }
+
     if ((cmd->mode - 1) != priv->current_mode) {
         ModeSwitcher switcher(priv->pack->get_sms_sts());
         switcher.switch_mode_temp(priv->data.id, cmd->mode - 1);
@@ -168,15 +160,12 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     float pos_rad = cmd->pos_des;
     // 0-4095 对应 0-2π 弧度
     int16_t position = static_cast<int16_t>(pos_rad);
-    if (position < 0)
-    position = 0;
-    if (position > 4095)
-    position = 4095;
+    if (position < 0) position = 0;
+    if (position > 4095) position = 4095;
 
     // feetech 速度单位约为 0.0146rpm，这里不处理
     uint16_t speed = static_cast<uint16_t>(cmd->vel_des);  // 保留原始单位
-    if (speed > 2400)
-    speed = 2400;
+    if (speed > 2400) speed = 2400;
 
     // 加速度 (使用默认值)
     uint16_t acceleration = 50;
@@ -187,7 +176,7 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
 
     // 发送指令
     if (priv->pack) {
-    priv->pack->send_pack_data(&priv->data, 1);
+        priv->pack->send_pack_data(&priv->data, 1);
     }
 
     return 0;
@@ -202,17 +191,15 @@ static int feetech_get_state(struct motor_dev* dev, struct motor_state* state) {
 
     // 读取状态
     if (priv->pack) {
-    priv->pack->recv_unpack_data(&priv->data, 1);
+        priv->pack->recv_unpack_data(&priv->data, 1);
     }
 
     // 将 FeetechData 转换为 motor_state
     // 位置转换 (0-4095 -> 弧度)
-    state->pos = static_cast<float>(
-        priv->data.cur_position);  // raw_position 单位： 0-4095 对应 0-2π rad
+    state->pos = static_cast<float>(priv->data.cur_position);  // raw_position 单位： 0-4095 对应 0-2π rad
 
     // 速度转换 (feetech units -> rad/s)
-    state->vel =
-        static_cast<float>(priv->data.cur_speed);  // raw_speed 单位： 0.0146RPM
+    state->vel = static_cast<float>(priv->data.cur_speed);  // raw_speed 单位： 0.0146RPM
 
     // 力矩/负载转换
     state->trq = static_cast<float>(priv->data.cur_load);  // 0 ~ 1000
@@ -232,10 +219,10 @@ static void feetech_free(struct motor_dev* dev) {
     if (dev->priv_data) {
         FeetechPrivData* priv = reinterpret_cast<FeetechPrivData*>(dev->priv_data);
 
-    std::lock_guard<std::mutex> lock(g_mutex);
-    g_motor_map.erase(priv->motor_id);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_motor_map.erase(priv->motor_id);
 
-    delete priv;
+        delete priv;
     }
 
     free(dev);
@@ -350,27 +337,26 @@ static struct motor_dev* feetech_factory(void* args) {
     // 分配私有数据
     FeetechPrivData* priv = new FeetechPrivData();
     if (!priv) {
-    free(dev);
-    return nullptr;
+        free(dev);
+        return nullptr;
     }
 
     priv->motor_id = uart_args->id;
     uint32_t actual_baud = uart_args->baud;
-    if (actual_baud == 0)
-    actual_baud = 1000000;  // 默认波特率
+    if (actual_baud == 0) actual_baud = 1000000;  // 默认波特率
 
     std::cout << "[Feetech] Factory: motor_id=" << static_cast<int>(priv->motor_id) << ", baud=" << actual_baud
                 << std::endl;
 
     // 获取或创建 FeetechPack 实例
     {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    priv->pack = get_or_create_pack(uart_args->dev_path, actual_baud);
-    if (!priv->pack) {
-        delete priv;
-        free(dev);
-        return nullptr;
-    }
+        std::lock_guard<std::mutex> lock(g_mutex);
+        priv->pack = get_or_create_pack(uart_args->dev_path, actual_baud);
+        if (!priv->pack) {
+            delete priv;
+            free(dev);
+            return nullptr;
+        }
     }
 
     // 初始化私有数据
@@ -384,8 +370,8 @@ static struct motor_dev* feetech_factory(void* args) {
 
     // 添加到全局映射
     {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    g_motor_map[priv->motor_id] = priv;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_motor_map[priv->motor_id] = priv;
     }
 
     return dev;
