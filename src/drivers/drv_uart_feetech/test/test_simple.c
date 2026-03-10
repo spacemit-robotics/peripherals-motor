@@ -134,10 +134,10 @@ int main(int argc, char *argv[])
     }
 
     // 4. 验证模式切换
-    printf("=========================== velocity ctl ================================\n");
+    printf("=========================== IDLE ctl ================================\n");
     memset(cmds, 0, sizeof(cmds));
     for (i = 0; i < num_motors; i++) {
-        cmds[i].mode = 1;       /* 速度控制模式 */
+        cmds[i].mode = MOTOR_MODE_IDLE;       /* 卸力模式 */
         cmds[i].vel_des = 2400; /* 目标速度 */
     }
     ret = motor_set_cmds(motors, cmds, num_motors);
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
     // 停止电机
     memset(cmds, 0, sizeof(cmds));
     for (i = 0; i < num_motors; i++) {
-        cmds[i].mode = 1;    /* 速度控制模式 */
+        cmds[i].mode = MOTOR_MODE_IDLE;    /*卸力模式 */
         cmds[i].vel_des = 0; /* 目标速度 */
     }
     ret = motor_set_cmds(motors, cmds, num_motors);
@@ -197,7 +197,7 @@ int main(int argc, char *argv[])
     printf("=========================== position ctl ================================\n");
     memset(cmds, 0, sizeof(cmds));
     for (i = 0; i < num_motors; i++) {
-        cmds[i].mode = 0;              /* 位置控制模式 */
+        cmds[i].mode = MOTOR_MODE_POS;              /* 位置控制模式 */
         cmds[i].pos_des = 4000;         /* 目标位置: 2*PI */
         cmds[i].vel_des = 2400;         /* 目标速度 */
 

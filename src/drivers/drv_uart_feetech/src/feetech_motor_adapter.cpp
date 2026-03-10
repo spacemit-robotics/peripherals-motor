@@ -36,8 +36,9 @@ int mode_flag = 0;  // 模式修改标志位
 struct FeetechPrivData {
     uint8_t motor_id;
     uint8_t current_mode;  // 当前模式
-    FeetechData data;     // 当前状态数据
-    FeetechPack *pack;    // 共享的 FeetechPack 实例指针
+    FeetechData data;      // 当前状态数据
+    FeetechPack *pack;     // 共享的 FeetechPack 实例指针
+    bool is_idle;	   //标记当前是否处于卸力状态
 };
 
 // ==============================================================================
@@ -106,6 +107,9 @@ static int feetech_init(struct motor_dev *dev) {
     // 初始化数据结构
     memset(&priv->data, 0, sizeof(FeetechData));
     priv->data.id = priv->motor_id;
+    priv->current_mode = 0;
+    priv->is_idle = false;
+
 
     // 默认模式为位置伺服模式，掉电不丢失
     ModeSwitcher switcher(priv->pack->get_sms_sts());
@@ -134,7 +138,20 @@ static int feetech_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
     // 检查模式是否匹配，不匹配则切换模式(掉电丢失)
     // 框架层传递 pos vel - 1 2
     // 实际 pos vel - 0 1，映射 - 1
+    if (cmd->mode == MOTOR_MODE_IDLE) {
+	    if (!priv->is_idle) {  // 如果尚未处于卸力状态，则给底层发送卸力指令
+		    priv->pack->get_sms_sts().EnableTorque(priv->data.id, 0);
+		    priv->is_idle = true;  // 标记为IDLE，防止下次循环重复发送指令
+	    }
+	    return 0;
+    }
 
+    // 非掉电模式确保扭矩有效
+    if (priv->is_idle) {
+	    // 从 IDLE 恢复到控制模式，重新使能扭矩
+	    priv->pack->get_sms_sts().EnableTorque(priv->data.id, 1);
+	    priv->is_idle = false;
+    }
     if ((cmd->mode - 1) != priv->current_mode) {
     ModeSwitcher switcher(priv->pack->get_sms_sts());
     switcher.switch_mode_temp(priv->data.id, cmd->mode - 1);
