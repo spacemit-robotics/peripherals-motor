@@ -147,8 +147,14 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
         // 从 IDLE 恢复到控制模式，重新使能扭矩
         priv->pack->get_sms_sts().EnableTorque(priv->data.id, 1);
         priv->is_idle = false;
-    }
+   }
 
+    // 非掉电模式确保扭矩有效
+    if (priv->is_idle) {
+	    // 从 IDLE 恢复到控制模式，重新使能扭矩
+	    priv->pack->get_sms_sts().EnableTorque(priv->data.id, 1);
+	    priv->is_idle = false;
+    }
     if ((cmd->mode - 1) != priv->current_mode) {
         ModeSwitcher switcher(priv->pack->get_sms_sts());
         switcher.switch_mode_temp(priv->data.id, cmd->mode - 1);
