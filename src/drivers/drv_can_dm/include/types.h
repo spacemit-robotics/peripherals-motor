@@ -35,33 +35,33 @@
 // Created by qiayuan on 1/20/21.
 //
 
+#ifndef TYPES_H
+#define TYPES_H
+
 #pragma once
 
-#include <string>
-#include <rm_common/filters/lp_filter.h>
 #include <rm_common/filters/imu_filter_base.h>
+#include <rm_common/filters/lp_filter.h>
+
+#include <string>
 #include <unordered_map>
 
-namespace rm_hw
-{
+namespace rm_hw {
 
+struct ActData {
+    std::string name;
+    std::string type;
+    ros::Time stamp;
+    uint64_t seq;
 
-struct ActData
-{
-  std::string name;
-  std::string type;
-  ros::Time stamp;
-  uint64_t seq;
-
-  double frequency;
-  double pos, vel, effort;
-  double cmd_pos, cmd_vel, cmd_effort, exe_effort;
-
+    double frequency;
+    double pos, vel, effort;
+    double cmd_pos, cmd_vel, cmd_effort, exe_effort;
 };
 
-
-struct CanDataPtr
-{
-  std::unordered_map<int, ActData>* id2act_data_;
+struct CanDataPtr {
+    std::unordered_map<int, ActData>* id2act_data_;
 };
 }  // namespace rm_hw
+
+#endif  // TYPES_H

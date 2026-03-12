@@ -1,8 +1,7 @@
 /*
  * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
  * SPDX-License-Identifier: Apache-2.0
- */ 
-
+ */
 
 /*
  * 使用示例：测试 dm_can 驱动在 motor_framework 下的工作情况
@@ -15,9 +14,8 @@
 
 #include "motor.h"
 
-int main(int argc, char **argv)
-{
-    struct motor_dev *dev;
+int main(int argc, char** argv) {
+    struct motor_dev* dev;
     struct motor_state state;
     struct motor_cmd cmd;
 
@@ -25,16 +23,14 @@ int main(int argc, char **argv)
     printf("Allocating motor device via motor_alloc_can...\n");
     // 注意：can0 是接口名，0x02 是电机 ID
     dev = motor_alloc_can("motor0", "can0", 0x02, NULL);
-    if (!dev)
-    {
+    if (!dev) {
         printf("Error: Failed to allocate motor device. Check driver registration.\n");
         return -1;
     }
 
     // 2. 初始化
     printf("Initializing motor...\n");
-    if (motor_init_one(dev) < 0)
-    {
+    if (motor_init_one(dev) < 0) {
         printf("Error: Init failed.\n");
         return -1;
     }
@@ -43,14 +39,11 @@ int main(int argc, char **argv)
 
     // 3. 控制循环
     float t = 0.0f;
-    for (int i = 0; i < 1000; i++)
-    {
+    for (int i = 0; i < 1000; i++) {
         // Get state
-        if (motor_get_state_one(dev, &state) == 0)
-        {
-            printf("State: pos=%.3f, vel=%.3f, trq=%.3f\n",
-                    state.pos, state.vel, state.trq);
-        }else{
+        if (motor_get_state_one(dev, &state) == 0) {
+            printf("State: pos=%.3f, vel=%.3f, trq=%.3f\n", state.pos, state.vel, state.trq);
+        } else {
             // printf("Get state failed (maybe first frame not arrived)\n");
         }
 
@@ -62,8 +55,7 @@ int main(int argc, char **argv)
         cmd.kp = 20.0f;
         cmd.kd = 2.0f;
 
-        if (motor_set_cmd_one(dev, &cmd) < 0)
-        {
+        if (motor_set_cmd_one(dev, &cmd) < 0) {
             printf("Set cmd failed.\n");
         }
 
