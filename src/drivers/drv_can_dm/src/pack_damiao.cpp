@@ -4,6 +4,7 @@
  */
 
 #include "pack_damiao.h"
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -22,7 +23,7 @@ std::shared_ptr<damiao::DmHW> g_motor_hw = nullptr;
 /**
  * @brief 4. 电机失能/停止函数
  */
-void disable_motors(std::shared_ptr<damiao::DmHW> &hw) {
+void disable_motors(std::shared_ptr<damiao::DmHW>& hw) {
     if (hw) {
         std::cout << "Disabling motors..." << std::endl;
         // 1. 平稳停止
@@ -51,13 +52,11 @@ static bool g_hw_initialized = false;
 // C-compatible API impl
 extern "C" {
 
-void dm_driver_add_config(const char *bus_name, uint16_t can_id,
-        uint16_t motor_type) {
+void dm_driver_add_config(const char* bus_name, uint16_t can_id, uint16_t motor_type) {
     damiao::MotorConfig config;
     config.bus_name = bus_name;
     config.can_id = can_id;
-    config.motor_type =
-        (damiao::DM_Motor_Type)(motor_type);  // 简单 cast，注意枚举匹配
+    config.motor_type = (damiao::DM_Motor_Type)(motor_type);  // 简单 cast，注意枚举匹配
     // 关键修正：根据日志推断回复 ID 是发送 ID + 0x10
     config.master_id = can_id + 0x10;
     config.control_mode = damiao::MIT_MODE;
@@ -80,29 +79,27 @@ int dm_driver_init_global() {
     return 0;
 }
 
-void dm_driver_send_cmd(const char *bus_name, uint16_t can_id, float p, float v,
-                        float t, float kp, float kd) {
+void dm_driver_send_cmd(const char* bus_name, uint16_t can_id, float p, float v, float t, float kp, float kd) {
     if (!g_motor_hw)
         return;
     // 使用新增加的接口 sendMitCommand
     g_motor_hw->sendMitCommand(bus_name, can_id, p, v, t, kp, kd);
 }
 
-int dm_driver_get_state(const char *bus_name, uint16_t can_id, float *pos,
-                        float *vel, float *trq) {
+int dm_driver_get_state(const char* bus_name, uint16_t can_id, float* pos, float* vel, float* trq) {
     if (!g_motor_hw)
         return -1;
     // ⚠️ 性能优化：不在此处每次调用都触发 read，总线数据应由外部周期性刷新
     // 假设 g_motor_hw->getActuatorData() 的内容已经由外部循环或线程定时更新为最新数据
     // 可根据需要在此添加条件触发 read，例如传入一个标志位控制是否强制刷新
 
-    const auto &data = g_motor_hw->getActuatorData();
+    const auto& data = g_motor_hw->getActuatorData();
     // 手动查找 bus_name string key
     std::string bname(bus_name);
     if (data.count(bname)) {
-        const auto &motors = data.at(bname);
+        const auto& motors = data.at(bname);
         if (motors.count(can_id)) {
-            const auto &act = motors.at(can_id);
+            const auto& act = motors.at(can_id);
             *pos = act.pos;
             *vel = act.vel;
             *trq = act.effort;
@@ -125,8 +122,7 @@ void signalHandler(int signum) {
 /**
  * @brief 1. 初始化函数：总线设备初始化+电机使能
  */
-bool init_motors(std::shared_ptr<damiao::DmHW> &hw,
-        const std::vector<damiao::MotorConfig> &configs) {
+bool init_motors(std::shared_ptr<damiao::DmHW>& hw, const std::vector<damiao::MotorConfig>& configs) {
     // 注册信号处理函数
     signal(SIGINT, signalHandler);
 
@@ -148,8 +144,7 @@ bool init_motors(std::shared_ptr<damiao::DmHW> &hw,
 /**
  * @brief 2a. 轨迹规划指令发送函数：电机运动参数配置+控制指令发送
  */
-void send_trajectory_command(std::shared_ptr<damiao::DmHW> &hw,
-        const damiao::MotionParams &params) {
+void send_trajectory_command(std::shared_ptr<damiao::DmHW>& hw, const damiao::MotionParams& params) {
     if (!hw)
         return;
 
@@ -161,16 +156,14 @@ void send_trajectory_command(std::shared_ptr<damiao::DmHW> &hw,
 
     // 发送控制指令 (write调用会发送CAN帧)
     // 这里的周期设为0.002s (500Hz)
-    hw->write(std::chrono::system_clock::now(),
-            std::chrono::duration<double>(0.002));
+    hw->write(std::chrono::system_clock::now(), std::chrono::duration<double>(0.002));
 }
 
 /**
  * @brief 2b. MIT实时控制指令发送函数：直接发送位置/速度/力矩指令
  */
-void send_mit_command(std::shared_ptr<damiao::DmHW> &hw,
-        const char *bus_name, uint16_t can_id, float pos, float vel,
-        float torque, float kp, float kd) {
+void send_mit_command(std::shared_ptr<damiao::DmHW>& hw, const char* bus_name, uint16_t can_id, float pos, float vel,
+    float torque, float kp, float kd) {
     if (!hw)
         return;
 
@@ -181,30 +174,26 @@ void send_mit_command(std::shared_ptr<damiao::DmHW> &hw,
 /**
  * @brief 3. 状态反馈函数：电机状态读取
  */
-void get_feedback(std::shared_ptr<damiao::DmHW> &hw) {
+void get_feedback(std::shared_ptr<damiao::DmHW>& hw) {
     if (!hw)
         return;
 
     // 从总线读取状态
-    hw->read(std::chrono::system_clock::now(),
-            std::chrono::duration<double>(0.002));
+    hw->read(std::chrono::system_clock::now(), std::chrono::duration<double>(0.002));
 
     // 获取并打印状态
-    const auto &data = hw->getActuatorData();
+    const auto& data = hw->getActuatorData();
 
     // 简单的打印逻辑，避免刷屏太快可以加控制，或者这里只负责获取
     // 为了演示，这里打印第一个电机的状态
     static int print_count = 0;
     if (print_count++ % 50 == 0) {  // 每50次调用打印一次 (约10Hz)
         std::cout << "--- Motor Feedback ---" << std::endl;
-        for (const auto &bus_pair : data) {
-            for (const auto &motor_pair : bus_pair.second) {
-                const auto &act = motor_pair.second;
-                std::cout << "Bus: " << bus_pair.first
-                        << " ID: " << act.can_id
-                        << " Pos: " << act.pos
-                        << " Vel: " << act.vel
-                        << " Torque: " << act.effort << std::endl;
+        for (const auto& bus_pair : data) {
+            for (const auto& motor_pair : bus_pair.second) {
+                const auto& act = motor_pair.second;
+                std::cout << "Bus: " << bus_pair.first << " ID: " << act.can_id << " Pos: " << act.pos
+                        << " Vel: " << act.vel << " Torque: " << act.effort << std::endl;
             }
         }
     }
