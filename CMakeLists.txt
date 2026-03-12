@@ -138,6 +138,38 @@ if(_can_dm_requested)
     endif()
 endif()
 
+# ECAT JMC driver path
+set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_jmc")
+
+# Decide whether ECAT JMC is requested:
+set(_ecat_jmc_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_ecat_jmc_requested ON)
+elseif("drv_ethercat_jmc" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "ethercat_jmc" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_ecat_jmc_requested ON)
+endif()
+
+set(BUILD_ECAT_JMC_DRIVER OFF)
+if(_ecat_jmc_requested)
+    if(EXISTS "${ECAT_JMC_DRIVER_PATH}")
+        set(BUILD_ECAT_JMC_DRIVER ON)
+        message(STATUS "Found ECAT JMC driver at: ${ECAT_JMC_DRIVER_PATH}")
+
+        include_directories(
+            ${ECAT_JMC_DRIVER_PATH}/include
+        )
+        set(ECAT_JMC_SOURCES
+            ${ECAT_JMC_DRIVER_PATH}/src/ethercat_cia402.c
+            ${ECAT_JMC_DRIVER_PATH}/src/jmc_ihss42.c
+            ${ECAT_JMC_DRIVER_PATH}/src/drv_ethercat_jmc_adapter.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${ECAT_JMC_DRIVER_PATH}")
+            message(WARNING "ECAT JMC driver requested but not found at: ${ECAT_JMC_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
 # Core source files
 set(MOTOR_CORE_SOURCES
     src/motor_core.c
@@ -180,6 +212,13 @@ if(BUILD_CAN_DM_DRIVER)
     )
 endif()
 
+# Add ECAT JMC motor driver if available
+if(BUILD_ECAT_JMC_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${ECAT_JMC_SOURCES}
+    )
+endif()
+
 # All source files
 set(MOTOR_SOURCES
     ${MOTOR_CORE_SOURCES}
@@ -216,6 +255,11 @@ endif()
 
 if(LIBGPIOD_FOUND)
     include_directories(${LIBGPIOD_INCLUDE_DIRS})
+endif()
+
+# Link pthread for Feetech driver (if using threads)
+if(BUILD_ECAT_JMC_DRIVER)
+    target_link_libraries(motor PRIVATE ethercat pthread)
 endif()
 
 # Link libraries to motor
@@ -299,5 +343,23 @@ if(BUILD_TESTS)
             pthread
         )
         install(TARGETS test_motor_can RUNTIME DESTINATION bin)
+    endif()
+    
+    # Add ECAT motor test if driver is built
+    if(BUILD_ECAT_JMC_DRIVER)
+        add_executable(test_motor_ecat test/test_motor_ecat.c)
+        set_target_properties(test_motor_ecat PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_ecat PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+
+        target_link_libraries(test_motor_ecat
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            ethercat
+            pthread
+        )
+        install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
     endif()
 endif()
