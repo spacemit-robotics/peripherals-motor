@@ -110,12 +110,12 @@ static int feetech_init(struct motor_dev* dev) {
     switcher.switch_mode(priv->data.id, 0);  // 切换到位置伺服模式
 
     /**************************************************************************************
-     *  上层 motor_core init
+     * 上层 motor_core init
      * 函数设计不包含控制参数传递，在本函数实际无法获取用户设置的模式，但先保留此模块
-     *  模式切换，默认模式为位置伺服模式 (mode = 0)
-     *  ModeSwitcher switcher;
+     * 模式切换，默认模式为位置伺服模式 (mode = 0)
+     * ModeSwitcher switcher;
      *
-     *  switcher.switch_mode(sms_sts, priv->data.id, priv->data.mode);  // ID
+     * switcher.switch_mode(sms_sts, priv->data.id, priv->data.mode);  // ID
      * 切换到指定模式 priv->current_mode = priv->data.mode;
      **************************************************************************************/
     return 0;
