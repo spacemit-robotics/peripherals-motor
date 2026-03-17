@@ -23,6 +23,14 @@
 #define RAD_TO_PULSE (PULSES_PER_REV / RAD_PER_REV)
 #define PULSE_TO_RAD (RAD_PER_REV / PULSES_PER_REV)
 
+/* JMC EtherCAT Specific Configuration (must match driver adapter) */
+typedef struct {
+    uint32_t cycle_ms;
+    uint32_t profile_vel;
+    uint32_t profile_acc;
+    uint32_t profile_dec;
+} motor_config_ecat_jmc_t;
+
 static volatile int g_running = 1;
 
 static void signal_handler(int sig) {
@@ -50,8 +58,10 @@ int main(int argc, char** argv) {
     uint32_t cycle_ms = 2;
     int app_mode = MOTOR_MODE_POS;
 
-    static struct option long_opts[] = {{"motors", required_argument, 0, 'm'}, {"cycle", required_argument, 0, 'c'},
-        {"help", no_argument, 0, 'h'}, {0, 0, 0, 0}};
+    static struct option long_opts[] = {{"motors", required_argument, 0, 'm'},
+                                        {"cycle", required_argument, 0, 'c'},
+                                        {"help", no_argument, 0, 'h'},
+                                        {0, 0, 0, 0}};
 
     int opt;
     while ((opt = getopt_long(argc, argv, "m:c:h", long_opts, NULL)) != -1) {
@@ -61,8 +71,7 @@ int main(int argc, char** argv) {
                 break;
             case 'c':
                 cycle_ms = atoi(optarg);
-                if (cycle_ms == 0)
-                    cycle_ms = 1;
+                if (cycle_ms == 0) cycle_ms = 1;
                 break;
             case 'h':
             default:
@@ -86,9 +95,13 @@ int main(int argc, char** argv) {
 
     struct motor_dev* devs[MAX_ECAT_MOTORS];
 
+    // define shared config
+    motor_config_ecat_jmc_t ecat_cfg = {
+        .cycle_ms = cycle_ms, .profile_vel = 100000, .profile_acc = 100000, .profile_dec = 100000};
+
     // allocate motors
     for (int i = 0; i < motor_count; i++) {
-        devs[i] = motor_alloc_ecat("drv_ethercat_jmc", i, (void*)(uintptr_t)cycle_ms);
+        devs[i] = motor_alloc_ecat("drv_ethercat_jmc", i, &ecat_cfg);
         if (!devs[i]) {
             fprintf(stderr, "分配电机 %d 失败\n", i);
             return -1;
@@ -102,6 +115,32 @@ int main(int argc, char** argv) {
     }
 
     printf("电机初始化成功，开始运动测试...\n");
+
+
+    // 额定参数配置示例
+    typedef struct {
+        uint32_t index;
+        uint32_t subindex;
+        uint32_t data_len;
+    }address_info_t;
+
+    // 写参数
+    printf("========================================\n");
+    printf("开始写参数测试...\n\n");
+    uint32_t max_accelate_w = 50000;
+    // 写目标的索引+子索引+数据长度
+    address_info_t address_info_w = {0x60C5, 00, 4};
+    motor_set_paras(devs[0], &address_info_w, &max_accelate_w, sizeof(max_accelate_w));
+    printf("written max_accelate: %d\n", max_accelate_w);
+
+    // 读参数
+    printf("========================================\n");
+    printf("开始读参数测试...\n\n");
+    uint32_t max_accelate_r;
+    address_info_t address_info_r = {0x60C5, 00, 4};
+    motor_get_paras(devs[0],  &address_info_r, &max_accelate_r, sizeof(max_accelate_r));
+    printf("最大加速度: %d\n", max_accelate_r);
+
 
     uint32_t loop_count = 0;
     struct motor_cmd cmds[MAX_ECAT_MOTORS];
@@ -137,7 +176,8 @@ int main(int argc, char** argv) {
     //     }
 
     //     // 应用层不再判断使能状态，直接发送期望轨迹。
-    //     // 驱动层会自动捕捉使能瞬间的物理位置和指令位置，并进行差值补偿，确保零跳变启动。
+    //     //
+    //     驱动层会自动捕捉使能瞬间的物理位置和指令位置，并进行差值补偿，确保零跳变启动。
     //     motor_set_cmds(devs, cmds, motor_count);
 
     //     // 每秒打印一次状态
@@ -145,10 +185,11 @@ int main(int argc, char** argv) {
     //     if (print_interval == 0) print_interval = 1;
     //     if (loop_count % print_interval == 0) {
     //         for (int i = 0; i < motor_count; i++) {
-    //             printf("[M%d] CSP模式 - 反馈: %.3f, 指令: %.3f, 状态: 0x%04X %s\n", i, states[i].pos,
-    //             cmds[i].pos_des,
+    //             printf("[M%d] CSP模式 - 反馈: %.3f, 指令: %.3f, 状态: 0x%04X
+    //             %s\n", i, states[i].pos, cmds[i].pos_des,
     //                    (uint16_t)states[i].err,
-    //                    ((uint16_t)states[i].err & 0x006F) == 0x0027 ? "(RUNNING)" : "(ENABLING...)");
+    //                    ((uint16_t)states[i].err & 0x006F) == 0x0027 ?
+    //                    "(RUNNING)" : "(ENABLING...)");
     //         }
     //     }
 
@@ -190,14 +231,16 @@ int main(int argc, char** argv) {
     //     loop_count++;
     // }
 
-    // printf("所有电机已使能，开始正弦速度轨迹 (幅值=%.1f rad/s, 频率=%.1f Hz)...\n", amplitude_csv, frequency_csv);
+    // printf("所有电机已使能，开始正弦速度轨迹 (幅值=%.1f rad/s, 频率=%.1f
+    // Hz)...\n", amplitude_csv, frequency_csv);
 
     // // 第二步：执行轨迹
     // while (g_running) {
     //     motor_get_states(devs, states, motor_count);
 
     //     // 生成正弦速度轨迹
-    //     float target_vel = amplitude_csv * sinf(2.0f * M_PI * frequency_csv * time_sec);
+    //     float target_vel = amplitude_csv * sinf(2.0f * M_PI * frequency_csv *
+    //     time_sec);
 
     //     for (int i = 0; i < motor_count; i++) {
     //         cmds[i].mode = MOTOR_MODE_CSV;
@@ -208,7 +251,8 @@ int main(int argc, char** argv) {
 
     //     if (loop_count % (1000 / cycle_ms) == 0) {
     //         for (int i = 0; i < motor_count; i++) {
-    //             printf("[M%d] CSV 模式 - 反馈: P=%.3f, V=%.3f | 目标速度: %.3f\n", i, states[i].pos, states[i].vel,
+    //             printf("[M%d] CSV 模式 - 反馈: P=%.3f, V=%.3f | 目标速度:
+    //             %.3f\n", i, states[i].pos, states[i].vel,
     //                    target_vel);
     //         }
     //     }
@@ -222,7 +266,8 @@ int main(int argc, char** argv) {
     printf("========================================\n");
     printf("等待电机使能并自动锚定逻辑零点...\n");
 
-    // 第一步：在未使能时持续发送 pos_des=0，驱动会自动将逻辑零点标定在使能瞬间的物理位置
+    // 第一步：在未使能时持续发送
+    // pos_des=0，驱动会自动将逻辑零点标定在使能瞬间的物理位置
     printf("正在同步所有电机使能状态...\n");
     int stable_counts = 0;
     while (g_running) {
@@ -239,13 +284,12 @@ int main(int argc, char** argv) {
 
         if (all_enabled) {
             // 所有电机都已使能，额外等待 100ms 确保适配器内部锚定逻辑彻底完成
-            if (++stable_counts > (100 / cycle_ms))
-                break;
+            if (++stable_counts > (100 / cycle_ms)) break;
         } else {
             stable_counts = 0;
             if (loop_count % (500 / cycle_ms) == 0) {
                 printf("等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
-                    (motor_count > 1 ? (uint16_t)states[1].err : 0));
+                        (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
         }
 
@@ -275,10 +319,11 @@ int main(int argc, char** argv) {
 
             if (t % (500 / cycle_ms) == 0) {
                 printf("[M0] PP模式 - 目标: %.3f, 反馈: %.3f, 状态: 0x%04X\n", target, states[0].pos,
-                    (uint16_t)states[0].err);
+                        (uint16_t)states[0].err);
             }
 
-            // 检查所有电机是否都到达目标位置（Target Reached: Bit 10 of statusword in PP mode is 0x0400）
+            // 检查所有电机是否都到达目标位置（Target Reached: Bit 10 of statusword in
+            // PP mode is 0x0400）
             int all_reached = 1;
             for (int i = 0; i < motor_count; i++) {
                 if (!((uint16_t)states[i].err & 0x0400)) {
@@ -319,13 +364,12 @@ int main(int argc, char** argv) {
 
         if (all_enabled) {
             // 所有电机都已使能，额外等待 100ms 确保控制环路稳定
-            if (++pv_stable_counts > (100 / cycle_ms))
-                break;
+            if (++pv_stable_counts > (100 / cycle_ms)) break;
         } else {
             pv_stable_counts = 0;
             if (loop_count % (500 / cycle_ms) == 0) {
                 printf("PV 等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
-                    (motor_count > 1 ? (uint16_t)states[1].err : 0));
+                        (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
         }
         sleep_ms(cycle_ms);
@@ -355,7 +399,7 @@ int main(int argc, char** argv) {
             if (t % (500 / cycle_ms) == 0) {
                 for (int i = 0; i < motor_count; i++) {
                     printf("[M%d] PV模式 - 目标: %.3f, 反馈V: %.3f, P: %.3f\n", i, target_vel, states[i].vel,
-                        states[i].pos);
+                            states[i].pos);
                 }
             }
 
@@ -388,7 +432,8 @@ int main(int argc, char** argv) {
     //     motor_set_cmds(devs, cmds, motor_count);
 
     //     if (loop_count % (500 / cycle_ms) == 0) {
-    //         printf("等待使能中... (SW=%04X, 当前位置: %.3f)\n", (uint16_t)states[0].err, states[0].pos);
+    //         printf("等待使能中... (SW=%04X, 当前位置: %.3f)\n",
+    //         (uint16_t)states[0].err, states[0].pos);
     //     }
     //     sleep_ms(cycle_ms);
     //     loop_count++;
@@ -397,15 +442,16 @@ int main(int argc, char** argv) {
     // printf("HM 模式已就绪，正在触发回零动作...\n");
 
     // // 第二步：监控回零进展
-    // // 在 HM 模式下，statusword Bit 12 表示 Homing attained，Bit 13 表示 Homing error
-    // while (g_running) {
+    // // 在 HM 模式下，statusword Bit 12 表示 Homing attained，Bit 13 表示 Homing
+    // error while (g_running) {
     //     motor_get_states(devs, states, motor_count);
     //     motor_set_cmds(devs, cmds, motor_count);  // 保持模式
 
     //     uint16_t sw = (uint16_t)states[0].err;
 
     //     if (loop_count % (500 / cycle_ms) == 0) {
-    //         printf("[M0] HM 监控 - SW: 0x%04X, 位置: %.3f\n", sw, states[0].pos);
+    //         printf("[M0] HM 监控 - SW: 0x%04X, 位置: %.3f\n", sw,
+    //         states[0].pos);
     //     }
 
     //     if (sw & 0x2000) {  // Bit 13: Homing error

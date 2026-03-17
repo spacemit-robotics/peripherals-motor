@@ -17,6 +17,14 @@
 #include "ethercat_cia402.h"
 #include "jmc_ihss42.h"
 
+/* Private configuration structure for JMC EtherCAT adapter */
+typedef struct {
+    uint32_t cycle_ms;
+    uint32_t profile_vel;
+    uint32_t profile_acc;
+    uint32_t profile_dec;
+} motor_config_ecat_jmc_t;
+
 #define MAX_ADAPTER_MOTORS EC_MAX_MOTORS
 
 /* Motor mechanics parameters (configurable) */
@@ -34,6 +42,7 @@ static int g_configured_motors = 0;
 static struct motor_dev* g_ec_devs[MAX_ADAPTER_MOTORS];
 static uint16_t g_slave_indices[MAX_ADAPTER_MOTORS];
 static uint32_t g_requested_cycle_ms = 2;  // Default 2ms
+static motor_config_ecat_jmc_t g_motor_configs[MAX_ADAPTER_MOTORS];
 
 /* Background thread for EtherCAT cyclic task */
 static void* ecat_background_thread(void* arg) {
@@ -41,6 +50,7 @@ static void* ecat_background_thread(void* arg) {
     uint64_t next_cycle = ec_get_time_ns();
 
     while (g_ec_ctx.running) {
+        // Fine-grained locking: only protect mandatory master/domain calls
         pthread_mutex_lock(&g_ec_mutex);
         ec_cyclic_task(&g_ec_ctx);
         for (int i = 0; i < g_ec_ctx.motor_count; i++) {
@@ -96,7 +106,7 @@ static int adapter_init(struct motor_dev* dev) {
         g_ec_ctx.enable_dc = 1;
         g_ec_ctx.cycle_time_ns = g_requested_cycle_ms * 1000000;
         printf("[Adapter] Starting EtherCAT with bus cycle: %u ms (%u ns)\n", g_requested_cycle_ms,
-            g_ec_ctx.cycle_time_ns);
+                g_ec_ctx.cycle_time_ns);
 
         if (ec_master_request(&g_ec_ctx, 0) < 0 || ec_domain_create(&g_ec_ctx) < 0) {
             pthread_mutex_unlock(&g_ec_mutex);
@@ -105,7 +115,8 @@ static int adapter_init(struct motor_dev* dev) {
 
         /* Configure registered motors */
         for (int i = 0; i < g_configured_motors; i++) {
-            jmc_ihss42_set_profile_params(&g_ec_ctx, i, 100000, 500000, 500000);
+            jmc_ihss42_set_profile_params(&g_ec_ctx, i, g_motor_configs[i].profile_vel, g_motor_configs[i].profile_acc,
+                                        g_motor_configs[i].profile_dec);
             if (jmc_ihss42_configure(&g_ec_ctx, i, 0, g_slave_indices[i], EC_MODE_CSP) < 0) {
                 pthread_mutex_unlock(&g_ec_mutex);
                 return -1;
@@ -131,8 +142,7 @@ static int adapter_init(struct motor_dev* dev) {
 }
 
 static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
-    if (!dev || !cmd || !g_ec_initialized)
-        return -1;
+    if (!dev || !cmd || !g_ec_initialized) return -1;
 
     int motor_idx = (int)(intptr_t)dev->priv_data;
 
@@ -161,7 +171,7 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
             motor->motion.app_start_pos = cmd_pulses;
             motor->motion.start_pos_set = 2;
             printf("[Adapter] M%d Pos-Anchored: Physical=%d, App=%d\n", motor_idx, motor->motion.start_pos,
-                motor->motion.app_start_pos);
+                    motor->motion.app_start_pos);
         } else {
             // Other modes (Velocity/Torque/Homing): Just unlock the safety gate
             motor->motion.start_pos_set = 2;
@@ -177,10 +187,22 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
 
     if (ec_mode == EC_MODE_CSP || ec_mode == EC_MODE_PP) {
         int32_t cmd_pulses = (int32_t)(cmd->pos_des * RAD_TO_PULSE);
-        // Relative command = (Current Cmd - Cmd at Enablement) + Physical Position at Enablement
+        // Relative command = (Current Cmd - Cmd at Enablement) + Physical Position
+        // at Enablement
         int32_t pos_pulses = (cmd_pulses - motor->motion.app_start_pos) + motor->motion.start_pos;
 
         if (ec_mode == EC_MODE_PP) {
+            // Dynamic profile update from cmd if values are provided
+            uint32_t p_vel =
+                (cmd->vel_des > 0.001f) ? (uint32_t)(fabsf(cmd->vel_des) * RAD_TO_PULSE) : motor->motion.profile_vel;
+            uint32_t p_acc = (cmd->kp > 1.0f) ? (uint32_t)(cmd->kp * RAD_TO_PULSE) : motor->motion.profile_acc;
+            uint32_t p_dec = (cmd->kd > 1.0f) ? (uint32_t)(cmd->kd * RAD_TO_PULSE) : motor->motion.profile_dec;
+
+            if (p_vel != motor->motion.profile_vel || p_acc != motor->motion.profile_acc ||
+                p_dec != motor->motion.profile_dec) {
+                jmc_ihss42_set_profile_params(&g_ec_ctx, motor_idx, p_vel, p_acc, p_dec);
+            }
+
             if (motor->motion.target_pos != pos_pulses) {
                 ec_pp_move_to(&g_ec_ctx, motor_idx, pos_pulses);
             }
@@ -203,8 +225,7 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
 }
 
 static int adapter_get_state(struct motor_dev* dev, struct motor_state* state) {
-    if (!dev || !state || !g_ec_initialized)
-        return -1;
+    if (!dev || !state || !g_ec_initialized) return -1;
 
     int motor_idx = (int)(intptr_t)dev->priv_data;
 
@@ -218,20 +239,77 @@ static int adapter_get_state(struct motor_dev* dev, struct motor_state* state) {
     return 0;
 }
 
+static int adapter_set_paras(struct motor_dev* dev, const void* address, const void* data, uint32_t data_len) {
+    if (!dev || !address || !data || !g_ec_initialized) return -1;
+
+    int motor_idx = (int)(intptr_t)dev->priv_data;
+    uint16_t slave_pos = g_slave_indices[motor_idx];
+
+    // Align with common app-side structure
+    typedef struct {
+        uint32_t index;
+        uint32_t subindex;
+        uint32_t size;
+    } sdo_addr_t;
+    const sdo_addr_t* addr = (const sdo_addr_t*)address;
+
+    uint32_t abort_code = 0;
+    /* Call SDO without holding mutex to avoid deadlock with cyclic thread.
+       Most modern EtherCAT kernels handle the synchronization internally if callbacks aren't set. */
+    int ret = ecrt_master_sdo_download(g_ec_ctx.master, slave_pos, (uint16_t)addr->index, (uint8_t)addr->subindex,
+                                        (uint8_t*)data, data_len, &abort_code);
+
+    if (ret < 0) {
+        fprintf(stderr, "[Adapter] M%d SDO Download failed: 0x%04X:%02X, Abort: 0x%08X\n", motor_idx,
+                (uint16_t)addr->index, (uint8_t)addr->subindex, abort_code);
+        return -1;
+    }
+    return 0;
+}
+
+static int adapter_get_paras(struct motor_dev* dev, const void* address, void* out_data, uint32_t data_len) {
+    if (!dev || !address || !out_data || !g_ec_initialized) return -1;
+
+    int motor_idx = (int)(intptr_t)dev->priv_data;
+    uint16_t slave_pos = g_slave_indices[motor_idx];
+
+    typedef struct {
+        uint32_t index;
+        uint32_t subindex;
+        uint32_t size;
+    } sdo_addr_t;
+    const sdo_addr_t* addr = (const sdo_addr_t*)address;
+
+    uint32_t abort_code = 0;
+    size_t received_size = 0;
+    /* Do NOT hold the mutex here! */
+    int ret = ecrt_master_sdo_upload(g_ec_ctx.master, slave_pos, (uint16_t)addr->index, (uint8_t)addr->subindex,
+                                    (uint8_t*)out_data, data_len, &received_size, &abort_code);
+
+    if (ret < 0) {
+        fprintf(stderr, "[Adapter] M%d SDO Upload failed: 0x%04X:%02X, Abort: 0x%08X\n", motor_idx,
+                (uint16_t)addr->index, (uint8_t)addr->subindex, abort_code);
+        return -1;
+    }
+    return 0;
+}
+
 static void adapter_free(struct motor_dev* dev) {
-    if (!dev)
-        return;
+    if (!dev) return;
     /* Optional: reference counting logic for stopping thread and master_release
      */
     free(dev);
 }
 
-static const struct motor_ops g_adapter_ops = {
-    .init = adapter_init, .set_cmd = adapter_set_cmd, .get_state = adapter_get_state, .free = adapter_free};
+static const struct motor_ops g_adapter_ops = {.init = adapter_init,
+                                                .set_cmd = adapter_set_cmd,
+                                                .get_state = adapter_get_state,
+                                                .free = adapter_free,
+                                                .set_paras = adapter_set_paras,
+                                                .get_paras = adapter_get_paras};
 
 static struct motor_dev* adapter_factory(void* args) {
-    if (!args)
-        return NULL;
+    if (!args) return NULL;
 
     struct motor_args_ecat* ecat_args = (struct motor_args_ecat*)args;
 
@@ -239,15 +317,23 @@ static struct motor_dev* adapter_factory(void* args) {
         return NULL;
     }
 
-    // Use shared cycle time for all motors assigned to this master
-    uint32_t val = (uint32_t)(uintptr_t)ecat_args->args;
-    if (val > 0) {
-        g_requested_cycle_ms = val;
+    // Handle config args
+    if (ecat_args->args) {
+        // If it's a pointer to the config struct
+        motor_config_ecat_jmc_t* cfg = (motor_config_ecat_jmc_t*)ecat_args->args;
+        g_motor_configs[g_configured_motors] = *cfg;
+        if (cfg->cycle_ms > 0) {
+            g_requested_cycle_ms = cfg->cycle_ms;
+        }
+    } else {
+        // Default fallback
+        g_motor_configs[g_configured_motors].profile_vel = 100000;
+        g_motor_configs[g_configured_motors].profile_acc = 500000;
+        g_motor_configs[g_configured_motors].profile_dec = 500000;
     }
 
     struct motor_dev* dev = calloc(1, sizeof(struct motor_dev));
-    if (!dev)
-        return NULL;
+    if (!dev) return NULL;
 
     dev->name = "drv_ethercat_jmc";
     dev->ops = &g_adapter_ops;
