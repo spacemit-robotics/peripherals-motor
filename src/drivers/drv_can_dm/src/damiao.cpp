@@ -75,9 +75,7 @@ uint32_t Motor::get_param_as_uint32(int key) const {
     return 0;
 }
 
-bool Motor::is_have_param(int key) const {
-    return param_map.find(key) != param_map.end();
-}
+bool Motor::is_have_param(int key) const { return param_map.find(key) != param_map.end(); }
 
 /******一个can，一个Motor_Control**********************/
 Motor_Control::Motor_Control(std::string bus_name, std::unordered_map<uint16_t, DmActData>* data_ptr)
@@ -88,12 +86,10 @@ Motor_Control::Motor_Control(std::string bus_name, std::unordered_map<uint16_t, 
         addMotor(motor);
     }
     int thread_priority = 95;
-    while (!socket_can_.open(
-        bus_name, boost::bind(&Motor_Control::canframeCallback, this, boost::placeholders::_1), thread_priority))
+    while (!socket_can_.open(bus_name, boost::bind(&Motor_Control::canframeCallback, this, boost::placeholders::_1),
+                            thread_priority))
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-    enable_all();  // 使能该接口下的所有电机
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));    enable_all();  // 使能该接口下的所有电机
     // usleep(1000000);//1s
     std::cout << "Motor_Control init success!" << std::endl;
 }
@@ -266,10 +262,8 @@ void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, fl
         float data_norm = (x - xmin) / span;
 
         // Clamping to prevent overflow
-        if (data_norm < 0)
-            data_norm = 0;
-        if (data_norm > 1)
-            data_norm = 1;
+        if (data_norm < 0) data_norm = 0;
+        if (data_norm > 1) data_norm = 1;
 
         uint16_t data_uint = data_norm * ((1 << bits) - 1);
         return data_uint;
@@ -277,7 +271,7 @@ void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, fl
     uint16_t id = DM_Motor.GetCanId();
     if (motors.find(id) == motors.end()) {
         std::cerr << "[Error] In control_mit,no motor with id " << DM_Motor.GetCanId() << " is registered."
-                << std::endl;
+                    << std::endl;
         std::exit(-1);  // 终止程序，返回非 0 表示错误
     }
     auto& m = motors[id];
@@ -307,7 +301,7 @@ void Motor_Control::control_pos_vel(Motor& DM_Motor, float pos, float vel) {
     uint16_t id = DM_Motor.GetCanId();
     if (motors.find(id) == motors.end()) {
         std::cerr << "[Error] In control_pos_vel,no motor with id " << DM_Motor.GetCanId() << " is registered."
-                << std::endl;
+                    << std::endl;
         std::exit(-1);  // 终止程序，返回非 0 表示错误
     }
     can_frame frame{};
@@ -333,7 +327,7 @@ void Motor_Control::control_vel(Motor& DM_Motor, float vel) {
     uint16_t id = DM_Motor.GetCanId();
     if (motors.find(id) == motors.end()) {
         std::cerr << "[Error] In control_vel,no motor with id " << DM_Motor.GetCanId() << " is registered."
-                << std::endl;
+                    << std::endl;
         std::exit(-1);  // 终止程序，返回非 0 表示错误
     }
     can_frame frame{};
@@ -346,6 +340,47 @@ void Motor_Control::control_vel(Motor& DM_Motor, float vel) {
     frame.data[1] = *(vbuf + 1);
     frame.data[2] = *(vbuf + 2);
     frame.data[3] = *(vbuf + 3);
+
+    socket_can_.write(&frame);
+}
+
+// 新增力位混控模式
+void Motor_Control::control_pos_force(Motor& DM_Motor, float pos, float vel_limit, float current_limit) {
+    uint16_t id = DM_Motor.GetCanId();
+    if (motors.find(id) == motors.end()) {
+        std::cerr << "[Error] In control_pos_force,no motor with id " << DM_Motor.GetCanId() << " is registered."
+                    << std::endl;
+        std::exit(-1);
+    }
+
+    // 限制速度范围 0-100 rad/s
+    if (vel_limit < 0) vel_limit = 0;
+    if (vel_limit > 100) vel_limit = 100;
+    uint16_t v_des = static_cast<uint16_t>(vel_limit * 100);
+
+    // 限制电流标幺值范围 0-1.0
+    if (current_limit < 0) current_limit = 0;
+    if (current_limit > 1.0) current_limit = 1.0;
+    uint16_t i_des = static_cast<uint16_t>(current_limit * 10000);
+
+    can_frame frame{};
+    frame.can_id = id + POS_FORCE_MODE;
+    frame.can_dlc = 8;
+
+    // D[0-3]: 位置 (float, 低位在前)
+    uint8_t* pbuf = reinterpret_cast<uint8_t*>(&pos);
+    frame.data[0] = pbuf[0];
+    frame.data[1] = pbuf[1];
+    frame.data[2] = pbuf[2];
+    frame.data[3] = pbuf[3];
+
+    // D[4-5]: 速度限制 (uint16, 低位在前)
+    frame.data[4] = v_des & 0xFF;
+    frame.data[5] = (v_des >> 8) & 0xFF;
+
+    // D[6-7]: 电流限制 (uint16, 低位在前)
+    frame.data[6] = i_des & 0xFF;
+    frame.data[7] = (i_des >> 8) & 0xFF;
 
     socket_can_.write(&frame);
 }
@@ -391,9 +426,20 @@ bool Motor_Control::switchControlMode(Motor& DM_Motor, Control_Mode_Code mode) {
     write_motor_param(DM_Motor, RID, write_data);
     if (motors.find(DM_Motor.GetCanId()) == motors.end()) {
         std::cerr << "[Error] In switchControlMode,no motor with id " << DM_Motor.GetCanId() << " is registered."
-                << std::endl;
+                    << std::endl;
         std::exit(-1);  // 终止程序
         return false;
+    }
+
+    // 更新 Motor 对象的模式，使 getCurrentMode 返回正确值
+    static const Control_Mode code_to_mode[] = {
+        MIT_MODE,        // MIT = 1
+        POS_VEL_MODE,    // POS_VEL = 2
+        VEL_MODE,        // VEL = 3
+        POS_FORCE_MODE,  // POS_FORCE = 4
+    };
+    if (mode >= 1 && mode <= 4) {
+        DM_Motor.SetMotorMode(code_to_mode[mode - 1]);
     }
 
     return true;
@@ -423,7 +469,7 @@ bool Motor_Control::change_motor_param(Motor& DM_Motor, uint8_t RID, float data)
     }
     if (motors.find(DM_Motor.GetCanId()) == motors.end()) {
         std::cerr << "[Error] In change_motor_param,no motor with id " << DM_Motor.GetCanId() << " is registered."
-                << std::endl;
+                    << std::endl;
         std::exit(-1);  // 终止程序，返回非 0 表示错误
         return false;
     }
@@ -568,7 +614,11 @@ void Motor_Control::read() {
         m.second.vel = it->Get_Velocity();
         m.second.effort = it->Get_tau();
         // std::cerr<<"MotorType: "<<it->GetMotorType()<<std::endl;
-        std::cerr << "pos: " << m.second.pos << " vel: " << m.second.vel << " effort: " << m.second.effort << std::endl;
+        static int read_cnt = 0;
+        if (++read_cnt % 100 == 0) {
+            std::cerr << "pos: " << m.second.pos << " vel: " << m.second.vel << " effort: " << m.second.effort
+                    << std::endl;
+        }
     }
 }
 
@@ -609,7 +659,7 @@ void Motor_Control::canframeCallback(const can_frame& frame) {
 
             if (motors.find(frame.can_id) == motors.end()) {
                 std::cerr << "[Debug] Received frame with ID " << std::hex << frame.can_id << " but not found in map."
-                        << std::dec << std::endl;
+                            << std::dec << std::endl;
                 return;
             }
             auto m = motors[frame.can_id];

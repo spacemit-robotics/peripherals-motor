@@ -125,9 +125,8 @@ if(_can_dm_requested)
         set(CAN_DM_SOURCES
             ${CAN_DM_DRIVER_PATH}/src/drv_can_dm.cpp
             ${CAN_DM_DRIVER_PATH}/src/damiao.cpp
-            ${CAN_DM_DRIVER_PATH}/src/pack_damiao.cpp
-            ${CAN_DM_DRIVER_PATH}/src/control_loop.cpp
-            ${CAN_DM_DRIVER_PATH}/src/DmHW.cpp
+            ${CAN_DM_DRIVER_PATH}/src/damiao_pack.cpp
+            ${CAN_DM_DRIVER_PATH}/src/damiao_hw.cpp
             ${CAN_DM_DRIVER_PATH}/src/socketcan.cpp
         )
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")

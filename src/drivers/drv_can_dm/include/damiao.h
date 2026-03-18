@@ -66,54 +66,58 @@ enum Control_Mode_Code {
 };
 
 /*
- * @brief 寄存器列表 具体参考达妙手册
+ * @brief 寄存器列表 具体参考达妙手册 DM-J4310-2EC V1.2
  */
 enum DM_REG {
-    UV_Value = 0,
-    KT_Value = 1,
-    OT_Value = 2,
-    OC_Value = 3,
-    ACC = 4,
-    DEC = 5,
-    MAX_SPD = 6,
-    MST_ID = 7,
-    ESC_ID = 8,
-    TIMEOUT = 9,
-    CTRL_MODE = 10,
-    Damp = 11,
-    Inertia = 12,
-    hw_ver = 13,
-    sw_ver = 14,
-    SN = 15,
-    NPP = 16,
-    Rs = 17,
-    LS = 18,
-    Flux = 19,
-    Gr = 20,
-    PMAX = 21,
-    VMAX = 22,
-    TMAX = 23,
-    I_BW = 24,
-    KP_ASR = 25,
-    KI_ASR = 26,
-    KP_APR = 27,
-    KI_APR = 28,
-    OV_Value = 29,
-    GREF = 30,
-    Deta = 31,
-    V_BW = 32,
-    IQ_c1 = 33,
-    VL_c1 = 34,
-    can_br = 35,
-    sub_ver = 36,
-    u_off = 50,
-    v_off = 51,
-    k1 = 52,
-    k2 = 53,
-    m_off = 54,
-    dir = 55,
-    p_m = 80,
-    xout = 81,
+    UV_Value  = 0,   // 低压保护值       RW float
+    KT_Value  = 1,   // 扭矩系数         RW float
+    OT_Value  = 2,   // 过温保护值       RW float
+    OC_Value  = 3,   // 过流保护值       RW float
+    ACC       = 4,   // 加速度           RW float
+    DEC       = 5,   // 减速度           RW float
+    MAX_SPD   = 6,   // 最大速度         RW float
+    MST_ID    = 7,   // 反馈 ID          RW uint32
+    ESC_ID    = 8,   // 接收 ID          RW uint32
+    TIMEOUT   = 9,   // 超时警报时间     RW uint32
+    CTRL_MODE = 10,  // 控制模式         RW uint32
+    Damp      = 11,  // 电机粘滞系数     RO float
+    Inertia   = 12,  // 电机转动惯量     RO float
+    hw_ver    = 13,  // 保留             RO uint32
+    sw_ver    = 14,  // 软件版本号       RO uint32
+    SN        = 15,  // 保留             RO uint32
+    NPP       = 16,  // 电机极对数       RO uint32
+    Rs        = 17,  // 电机相电阻       RO float
+    LS        = 18,  // 电机相电感       RO float
+    Flux      = 19,  // 电机磁链值       RO float
+    Gr        = 20,  // 齿轮减速比       RO float
+    PMAX      = 21,  // 位置映射范围     RW float
+    VMAX      = 22,  // 速度映射范围     RW float
+    TMAX      = 23,  // 扭矩映射范围     RW float
+    I_BW      = 24,  // 电流环控制带宽   RW float
+    KP_ASR    = 25,  // 速度环 Kp        RW float
+    KI_ASR    = 26,  // 速度环 Ki        RW float
+    KP_APR    = 27,  // 位置环 Kp        RW float
+    KI_APR    = 28,  // 位置环 Ki        RW float
+    OV_Value  = 29,  // 过压保护值       RW float
+    GREF      = 30,  // 齿轮力矩效率     RW float
+    Deta      = 31,  // 速度环阻尼系数   RW float
+    V_BW      = 32,  // 速度环滤波带宽   RW float
+    IQ_c1     = 33,  // 电流环增强系数   RW float
+    VL_c1     = 34,  // 速度环增强系数   RW float
+    can_br    = 35,  // CAN 波特率代码   RW uint32
+    sub_ver   = 36,  // 子版本号         RO uint32
+    Boot_ver  = 37,  // Boot 版本号      RO uint32
+    dir       = 55,  // 方向             RO float
+    m_off     = 56,  // 电机侧角度偏移   RO float
+    Imax      = 59,  // 驱动板最大电流   RO float
+    VBus      = 60,  // 电源电压         RO float
+    Tpcb      = 61,  // 驱动板温度       RO float
+    Tmtr      = 62,  // 电机温度         RO float
+    Iu_off    = 63,  // U 相电流偏置     RO float
+    Iv_off    = 64,  // V 相电流偏置     RO float
+    Iw_off    = 65,  // W 相电流偏置     RO float
+    p_m       = 80,  // 电机当前位置     RO float
+    xout      = 81,  // 输出轴位置       RO float
 };
 
 #pragma pack()
@@ -223,6 +227,11 @@ public:
     /// @brief 获取当前控制模式
     Control_Mode GetMotorMode() const {
         return this->mode;
+    }
+
+    /// @brief 设置当前控制模式
+    void SetMotorMode(Control_Mode m) {
+        this->mode = m;
     }
 
     /// @brief 获取电机限制参数（最大位置、速度、力矩）
@@ -415,6 +424,18 @@ public:
      * 适合恒速运动
      */
     void control_vel(Motor& DM_Motor, float vel);
+
+    /**
+     * @brief 位置+力矩控制（力位混控模式）
+     * @param DM_Motor 目标电机
+     * @param pos 目标位置 (rad)
+     * @param vel_limit 速度限制 (rad/s, 0-100)
+     * @param current_limit 电流限制标幺值 (0-1.0)
+     *
+     * 位置控制 + 速度限制 + 电流限制
+     * 适合需要力矩限制的位置控制任务
+     */
+    void control_pos_force(Motor& DM_Motor, float pos, float vel_limit, float current_limit);
 
     /**
      * @brief 接收电机参数反馈
