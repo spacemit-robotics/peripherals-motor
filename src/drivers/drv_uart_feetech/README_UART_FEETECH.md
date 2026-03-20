@@ -73,8 +73,8 @@ int main() {
     // 3. 位置控制
     struct motor_cmd cmd = {0};
     cmd.mode = MOTOR_MODE_POS;
-    cmd.pos_des = 2048;  // 180°
-    cmd.vel_des = 1200;  // 中速
+    cmd.pos_des = 3.14159f;  // 180°，单位：弧度
+    cmd.vel_des = 1.5f;      // 目标角速度，单位：rad/s
     motor_set_cmds(&motor, &cmd, 1);
     
     // 4. 读取状态
@@ -161,8 +161,8 @@ int motor_set_cmds(struct motor_dev **motors,
 ```c
 struct motor_cmd {
     uint8_t  mode;     // 控制模式：0=位置控制, 1=速度控制
-    float    pos_des;  // 目标位置 (0-4095)
-    float    vel_des;  // 目标速度 (0-2400)
+    float    pos_des;  // 目标位置 (单位：rad，范围 0~2π)
+    float    vel_des;  // 目标速度 (单位：rad/s)
     float    trq_des;  // 目标力矩 (保留，暂未使用)
 };
 ```
@@ -191,8 +191,8 @@ int motor_get_states(struct motor_dev **motors,
 **motor_state 结构体：**
 ```c
 struct motor_state {
-    float    pos;   // 当前位置 (0-4095)
-    float    vel;   // 当前速度 (0-2400)
+    float    pos;   // 当前位置 (单位：rad)
+    float    vel;   // 当前速度 (单位：rad/s)
     float    trq;   // 当前负载 (0-1000)
     float    temp;  // 当前温度 (℃)
     uint32_t err;   // 错误标志
@@ -224,26 +224,28 @@ void motor_free(struct motor_dev **motors, uint32_t num);
 #### 位置控制模式 (mode = 0)
 
 - 电机运动到指定位置后停止并保持
-- 位置范围：0 - 4095 (对应 0° - 360°)
-- 速度范围：0 - 2400 (约 0 - 35 RPM)
+- 位置输入范围：0 - 2π（单位：rad），内部会自动映射到 0-4095
+- 速度输入：任意非负 rad/s 值，驱动内部自动映射到原始速度寄存器
+    - 建议范围：0 ~ 4 rad/s（对应 Feetech 最大约 35 RPM），超过后驱动会自动饱和
 
 **示例：**
 ```c
 cmd.mode = MOTOR_MODE_POS;  // 或 0
-cmd.pos_des = 2048;         // 中间位置 (180°)
-cmd.vel_des = 1200;         // 运动速度
+cmd.pos_des = 3.14159f;     // 中间位置 (180°)，单位：rad
+cmd.vel_des = 1.5f;         // 运动速度，单位：rad/s
 ```
 
 #### 速度控制模式 (mode = 1)
 
 - 电机以恒定速度持续旋转
-- 速度范围：0 - 2400 (约 0 - 35 RPM)
-- 位置会在 0-4095 范围内循环
+- 速度输入：任意非负 rad/s 值
+- 位置会在 0-2π（映射到 0-4095）范围内循环
+    - 建议范围：0 ~ 4 rad/s，内部超过后会被限制在硬件允许的 35 RPM 左右
 
 **示例：**
 ```c
 cmd.mode = 1;               // 速度控制
-cmd.vel_des = 2400;         // 全速旋转
+cmd.vel_des = 3.67f;        // 示例速度，单位：rad/s
 
 // 停止电机
 cmd.vel_des = 0;
@@ -255,8 +257,9 @@ cmd.vel_des = 0;
 
 | 参数 | 范围 | 单位 | 说明 |
 |------|------|------|------|
-| 位置 | 0 - 4095 | 0.087° | 对应 0° - 360° |
-| 速度 | 0 - 2400 | 0.0146 RPM | 约 0 - 35 RPM |
+| 位置 | [0, 2π) | rad | 对应 0° - 360°，内部会自动映射到 0-4095 |
+| 速度 | [0, 4.0] | rad/s | 对应 0 - 35 RPM，上层可输入更大数值但会被限制 |
+| 加速度 | 固定 50 | - | 当前驱动默认值，可在源码中修改 |
 | 负载 | 0 - 1000 | - | 相对值 |
 | 温度 | - | ℃ | 实际温度 |
 | 电压 | - | V | 实际电压 |
