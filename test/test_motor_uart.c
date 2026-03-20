@@ -12,6 +12,7 @@
     *   默认: /dev/ttyACM1 1000000 feetech 2
     */
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,7 @@ int main(int argc, char *argv[]) {
 
     const char *dev_path = "/dev/ttyACM1";
     uint32_t baud = 1000000;
-    const char *driver = "feetech";
+    const char *driver = "drv_uart_feetech";
 
     /* 解析命令行: [dev_path] [baud] [driver] [num_motors] */
     if (argc >= 2)
@@ -120,12 +121,15 @@ int main(int argc, char *argv[]) {
     /* 3. 位置控制测试 */
     printf("=========================== position ctl "
             "================================\n");
-    memset(cmds, 0, sizeof(cmds));
-    for (i = 0; i < num_motors; i++) {
-    cmds[i].mode = MOTOR_MODE_POS;
-    cmds[i].pos_des = 4000;
-    cmds[i].vel_des = 2400;
-    }
+        const float kPosTargetRad = 6.1374215f;        // 4000 / 4095 * 2π (rad)
+        const float kVelTargetRadPerSec = 3.6693802f;  // 2400 units -> rad/s
+
+        memset(cmds, 0, sizeof(cmds));
+        for (i = 0; i < num_motors; i++) {
+        cmds[i].mode = MOTOR_MODE_POS;
+        cmds[i].pos_des = kPosTargetRad;
+        cmds[i].vel_des = kVelTargetRadPerSec;
+        }
 
     printf("\nmode =  %d\n", cmds[0].mode);
     ret = motor_set_cmds(motors, cmds, num_motors);
@@ -151,7 +155,7 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < num_motors; i++) {
     cmds[i].mode = MOTOR_MODE_POS;
     cmds[i].pos_des = 0;
-    cmds[i].vel_des = 2400;
+        cmds[i].vel_des = kVelTargetRadPerSec;
     }
     motor_set_cmds(motors, cmds, num_motors);
     sleep(3);
@@ -170,11 +174,11 @@ int main(int argc, char *argv[]) {
     /* 4. 速度控制测试 */
     printf("=========================== velocity ctl "
             "================================\n");
-    memset(cmds, 0, sizeof(cmds));
-    for (i = 0; i < num_motors; i++) {
-    cmds[i].mode = MOTOR_MODE_VEL;
-    cmds[i].vel_des = 2400;
-    }
+        memset(cmds, 0, sizeof(cmds));
+        for (i = 0; i < num_motors; i++) {
+        cmds[i].mode = MOTOR_MODE_VEL;
+        cmds[i].vel_des = kVelTargetRadPerSec;
+        }
     motor_set_cmds(motors, cmds, num_motors);
     sleep(3);
 
@@ -208,12 +212,12 @@ int main(int argc, char *argv[]) {
     /* 5. 第二轮位置控制 */
     printf("=========================== position ctl "
             "================================\n");
-    memset(cmds, 0, sizeof(cmds));
-    for (i = 0; i < num_motors; i++) {
-    cmds[i].mode = MOTOR_MODE_POS;
-    cmds[i].pos_des = 4000;
-    cmds[i].vel_des = 2400;
-    }
+        memset(cmds, 0, sizeof(cmds));
+        for (i = 0; i < num_motors; i++) {
+        cmds[i].mode = MOTOR_MODE_POS;
+        cmds[i].pos_des = kPosTargetRad;
+        cmds[i].vel_des = kVelTargetRadPerSec;
+        }
     ret = motor_set_cmds(motors, cmds, num_motors);
     if (ret != 0) {
     fprintf(stderr, "ERROR: Failed to set commands: %d\n", ret);
@@ -237,7 +241,7 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < num_motors; i++) {
     cmds[i].mode = MOTOR_MODE_POS;
     cmds[i].pos_des = 0;
-    cmds[i].vel_des = 2400;
+        cmds[i].vel_des = kVelTargetRadPerSec;
     }
     motor_set_cmds(motors, cmds, num_motors);
     sleep(3);
