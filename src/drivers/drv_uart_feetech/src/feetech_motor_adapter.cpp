@@ -13,6 +13,7 @@
  * 模式默认为位置伺服模式 (mode = 0)
  */
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -48,6 +49,46 @@ struct FeetechPrivData {
 static std::unordered_map<std::string, FeetechPack*> g_feetech_packs;  // 按设备路径管理
 static std::unordered_map<uint8_t, FeetechPrivData*> g_motor_map;
 static std::mutex g_mutex;
+
+// 角度与速度转换辅助常量
+constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+constexpr float kFeetechMaxPosition = 4095.0f;
+constexpr float kFeetechSpeedUnitRpm = 0.0146f;  // 每个单位对应的 RPM
+constexpr uint16_t kFeetechSpeedMax = 2400;
+
+static inline uint16_t rad_to_feetech_pos(float radians) {
+    if (!std::isfinite(radians)) return 0;
+
+    float wrapped = std::fmod(radians, kTwoPi);
+    if (wrapped < 0.0f) wrapped += kTwoPi;
+
+    float raw = (wrapped / kTwoPi) * kFeetechMaxPosition;
+    if (raw < 0.0f) raw = 0.0f;
+    if (raw > kFeetechMaxPosition) raw = kFeetechMaxPosition;
+
+    return static_cast<uint16_t>(std::lround(raw));
+}
+
+static inline float feetech_pos_to_rad(uint16_t raw) {
+    return (static_cast<float>(raw) / kFeetechMaxPosition) * kTwoPi;
+}
+
+static inline uint16_t radps_to_feetech_speed(float rad_per_sec) {
+    if (!std::isfinite(rad_per_sec)) return 0;
+
+    float rpm = rad_per_sec * 60.0f / kTwoPi;
+    float raw = rpm / kFeetechSpeedUnitRpm;
+
+    if (raw < 0.0f) raw = 0.0f;
+    if (raw > static_cast<float>(kFeetechSpeedMax)) raw = static_cast<float>(kFeetechSpeedMax);
+
+    return static_cast<uint16_t>(std::lround(raw));
+}
+
+static inline float feetech_speed_to_radps(uint16_t raw) {
+    float rpm = static_cast<float>(raw) * kFeetechSpeedUnitRpm;
+    return rpm * kTwoPi / 60.0f;
+}
 
 // ==============================================================================
 // 辅助函数
@@ -156,16 +197,11 @@ static int feetech_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     // 将 motor_cmd 转换为 FeetechData
     // motor_cmd 使用弧度，feetech 使用 0-4095 的位置值
 
-    // 位置
-    float pos_rad = cmd->pos_des;
-    // 0-4095 对应 0-2π 弧度
-    int16_t position = static_cast<int16_t>(pos_rad);
-    if (position < 0) position = 0;
-    if (position > 4095) position = 4095;
+    // 位置转换 (rad -> 0-4095)
+    uint16_t position = rad_to_feetech_pos(cmd->pos_des);
 
-    // feetech 速度单位约为 0.0146rpm，这里不处理
-    uint16_t speed = static_cast<uint16_t>(cmd->vel_des);  // 保留原始单位
-    if (speed > 2400) speed = 2400;
+    // 速度转换 (rad/s -> Feetech 单位，约 0.0146 RPM 每单位)
+    uint16_t speed = radps_to_feetech_speed(cmd->vel_des);
 
     // 加速度 (使用默认值)
     uint16_t acceleration = 50;
@@ -196,10 +232,10 @@ static int feetech_get_state(struct motor_dev* dev, struct motor_state* state) {
 
     // 将 FeetechData 转换为 motor_state
     // 位置转换 (0-4095 -> 弧度)
-    state->pos = static_cast<float>(priv->data.cur_position);  // raw_position 单位： 0-4095 对应 0-2π rad
+    state->pos = feetech_pos_to_rad(priv->data.cur_position);
 
     // 速度转换 (feetech units -> rad/s)
-    state->vel = static_cast<float>(priv->data.cur_speed);  // raw_speed 单位： 0.0146RPM
+    state->vel = feetech_speed_to_radps(priv->data.cur_speed);
 
     // 力矩/负载转换
     state->trq = static_cast<float>(priv->data.cur_load);  // 0 ~ 1000
@@ -381,4 +417,4 @@ static struct motor_dev* feetech_factory(void* args) {
 // 驱动注册 - 自动注册到 motor 框架
 // ==============================================================================
 
-REGISTER_MOTOR_DRIVER("feetech", DRV_TYPE_UART, feetech_factory)
+REGISTER_MOTOR_DRIVER("drv_uart_feetech", DRV_TYPE_UART, feetech_factory)
