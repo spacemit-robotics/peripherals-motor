@@ -1,0 +1,26 @@
+[package]
+name = "reachy-mini-motor-controller"
+version = "1.5.5"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[dependencies]
+env_logger = "0.11.8"
+log = "0.4.27"
+pyo3 = { version = "0.26.0", optional = true }
+pyo3-log = { version = "0.13.1", optional = true }
+pyo3-stub-gen = { version = "0.16.1", optional = true }
+rustypot = "1.4.2"
+serialport = { version = "4.7.2", default-features = false }
+tokio = { version = "1.46.1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+
+[features]
+default = []
+python = ["pyo3", "pyo3-log", "pyo3-stub-gen"]
+
+[[bin]]
+name = "stub_gen"
+required-features = ["python"]

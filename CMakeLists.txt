@@ -140,6 +140,20 @@ endif()
 # ECAT JMC driver path
 set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_jmc")
 
+# UART RM driver path
+set(UART_RM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_rm")
+
+# Find ethercat library (IgH EtherCAT Master)
+find_library(ETHERCAT_LIBRARY
+    NAMES ethercat
+    PATHS /usr/local/lib /usr/lib /usr/lib64
+)
+if(ETHERCAT_LIBRARY)
+    message(STATUS "Found ethercat library: ${ETHERCAT_LIBRARY}")
+else()
+    message(STATUS "ethercat library not found")
+endif()
+
 # Decide whether ECAT JMC is requested:
 set(_ecat_jmc_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -150,9 +164,11 @@ endif()
 
 set(BUILD_ECAT_JMC_DRIVER OFF)
 if(_ecat_jmc_requested)
-    if(EXISTS "${ECAT_JMC_DRIVER_PATH}")
+    if(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND ETHERCAT_LIBRARY)
         set(BUILD_ECAT_JMC_DRIVER ON)
         message(STATUS "Found ECAT JMC driver at: ${ECAT_JMC_DRIVER_PATH}")
+    elseif(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND NOT ETHERCAT_LIBRARY)
+        message(WARNING "ECAT JMC driver found but ethercat library is missing, skipping driver")
 
         include_directories(
             ${ECAT_JMC_DRIVER_PATH}/include
@@ -165,6 +181,29 @@ if(_ecat_jmc_requested)
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         if(NOT EXISTS "${ECAT_JMC_DRIVER_PATH}")
             message(WARNING "ECAT JMC driver requested but not found at: ${ECAT_JMC_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
+# Decide whether UART RM is requested:
+set(_uart_rm_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_uart_rm_requested ON)
+elseif("drv_uart_rm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "uart_rm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_rm_requested ON)
+endif()
+
+set(BUILD_UART_RM_DRIVER OFF)
+if(_uart_rm_requested)
+    if(EXISTS "${UART_RM_DRIVER_PATH}")
+        set(BUILD_UART_RM_DRIVER ON)
+        message(STATUS "Found UART RM driver at: ${UART_RM_DRIVER_PATH}")
+        set(UART_RM_SOURCES ${UART_RM_DRIVER_PATH}/src/drv_uart_xl330.c)
+        set(RUST_LIB_NAME "reachy_mini_motor_controller")
+        set(RUST_LIB_PATH "${UART_RM_DRIVER_PATH}/target/release/lib${RUST_LIB_NAME}.a")
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${UART_RM_DRIVER_PATH}")
+            message(WARNING "UART RM driver requested but not found at: ${UART_RM_DRIVER_PATH}")
         endif()
     endif()
 endif()
@@ -218,6 +257,15 @@ if(BUILD_ECAT_JMC_DRIVER)
     )
 endif()
 
+# Add UART RM motor driver if available
+if(BUILD_UART_RM_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${UART_RM_SOURCES}
+    )
+    # Ensure cargo build is run before motor is built
+    # we'll use add_dependencies later on the motor target
+endif()
+
 # All source files
 set(MOTOR_SOURCES
     ${MOTOR_CORE_SOURCES}
@@ -226,6 +274,7 @@ set(MOTOR_SOURCES
 
 # Create static library
 add_library(motor STATIC ${MOTOR_SOURCES})
+set_target_properties(motor PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Find libgpiod
 find_package(PkgConfig REQUIRED)
@@ -244,28 +293,40 @@ endif()
 
 # Link pthread for Feetech driver (if using threads)
 if(BUILD_FEETECH_DRIVER)
-    target_link_libraries(motor PRIVATE pthread)
+    target_link_libraries(motor PUBLIC pthread)
 endif()
 
 # Link pthread for CAN DM driver (if using threads)
 if(BUILD_CAN_DM_DRIVER)
-    target_link_libraries(motor PRIVATE pthread)
+    target_link_libraries(motor PUBLIC pthread)
 endif()
 
 if(LIBGPIOD_FOUND)
     include_directories(${LIBGPIOD_INCLUDE_DIRS})
 endif()
 
-# Link pthread for Feetech driver (if using threads)
+# Link pthread for ECAT JMC driver (if using threads)
 if(BUILD_ECAT_JMC_DRIVER)
-    target_link_libraries(motor PRIVATE ethercat pthread)
+    target_link_libraries(motor PUBLIC ${ETHERCAT_LIBRARY} pthread)
 endif()
 
-# Link libraries to motor
-target_link_libraries(motor PRIVATE
+# Link libraries to motor (PUBLIC so consumers inherit these deps)
+target_link_libraries(motor PUBLIC
     ${LIBGPIOD_LIBRARIES}
-    pthread  # 只需要链接一次
+    pthread
+    dl
+    rt
+    m
+    stdc++
 )
+
+# Link Rust core for UART RM if built
+if(BUILD_UART_RM_DRIVER)
+    add_dependencies(motor uart_rm_cargo_build)
+    target_link_libraries(motor PUBLIC "${RUST_LIB_PATH}")
+    # Rust staticlib might need dl and m
+    target_link_libraries(motor PUBLIC dl m)
+endif()
 
 # Set compiler/linker flags for driver auto-registration
 # The __attribute__((used)) in MOTOR_DRIVER_REGISTER ensures symbols are kept
@@ -277,14 +338,76 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     )
 endif()
 
-# Install rules
-install(TARGETS motor
+# ============================================================================
+# Install rules & CMake config export
+# ============================================================================
+
+# Set public include directory on the target (for export)
+target_include_directories(motor PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+install(TARGETS motor EXPORT motorTargets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
 )
 
-install(FILES include/motor.h
-    DESTINATION include
+if(BUILD_UART_RM_DRIVER)
+    install(FILES "${RUST_LIB_PATH}" DESTINATION lib)
+endif()
+
+install(FILES include/motor.h DESTINATION include)
+
+# Export CMake targets
+install(EXPORT motorTargets
+    FILE motorTargets.cmake
+    NAMESPACE motor::
+    DESTINATION lib/cmake/motor
+)
+
+# Generate motorConfig.cmake with usage requirements
+include(CMakePackageConfigHelpers)
+
+# Determine extra link flags for consumers (whole-archive + Rust lib)
+set(_MOTOR_EXTRA_LINK_LIBS "")
+if(BUILD_UART_RM_DRIVER)
+    set(_MOTOR_RUST_LIB "\${CMAKE_INSTALL_PREFIX}/lib/libreachy_mini_motor_controller.a")
+    set(_MOTOR_EXTRA_LINK_LIBS "${_MOTOR_RUST_LIB}")
+endif()
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake" [=[
+# motorConfig.cmake — auto-generated
+#
+# Provides:
+#   motor::motor           — imported static library
+#   MOTOR_WHOLE_ARCHIVE    — TRUE (consumers must use --whole-archive for driver registration)
+#   MOTOR_RUST_LIB         — path to Rust companion lib (empty if not built)
+#
+# Usage:
+#   find_package(motor REQUIRED)
+#   target_link_libraries(my_app
+#       -Wl,--whole-archive motor::motor -Wl,--no-whole-archive
+#       ${MOTOR_RUST_LIB}   # if non-empty
+#   )
+
+include("${CMAKE_CURRENT_LIST_DIR}/motorTargets.cmake")
+
+set(MOTOR_WHOLE_ARCHIVE TRUE)
+set(MOTOR_RUST_LIB "@_MOTOR_EXTRA_LINK_LIBS@")
+]=])
+
+# Replace @vars@ in the config file
+configure_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.out"
+    @ONLY
+)
+file(RENAME "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.out"
+            "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake")
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
+    DESTINATION lib/cmake/motor
 )
 
 # Optional: Create a test executable
@@ -356,9 +479,33 @@ if(BUILD_TESTS)
             -Wl,--whole-archive
             motor
             -Wl,--no-whole-archive
-            ethercat
+            ${ETHERCAT_LIBRARY}
             pthread
         )
         install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
     endif()
+
+    # UART RM motor test (XL330/XC330)
+    if(BUILD_UART_RM_DRIVER)
+        add_executable(test_motor_xl330 test/test_uart_xl330.c)
+        set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_xl330 PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        target_link_libraries(test_motor_xl330
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_xl330 RUNTIME DESTINATION bin)
+    endif()
+
+
+    # UART RM motor tests moved to src/drivers/drv_uart_rm/CMakeLists.txt
+endif()
+
+if(BUILD_UART_RM_DRIVER)
+    add_subdirectory(src/drivers/drv_uart_rm)
 endif()
