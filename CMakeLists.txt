@@ -140,8 +140,8 @@ endif()
 # ECAT JMC driver path
 set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_jmc")
 
-# UART RM driver path
-set(UART_RM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_rm")
+# UART XL330 driver path
+set(UART_XL330_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_xl330")
 
 # Find ethercat library (IgH EtherCAT Master)
 find_library(ETHERCAT_LIBRARY
@@ -185,25 +185,25 @@ if(_ecat_jmc_requested)
     endif()
 endif()
 
-# Decide whether UART RM is requested:
-set(_uart_rm_requested OFF)
+# Decide whether UART XL330 is requested:
+set(_uart_xl330_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
-    set(_uart_rm_requested ON)
-elseif("drv_uart_rm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "uart_rm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
-    set(_uart_rm_requested ON)
+    set(_uart_xl330_requested ON)
+elseif("drv_uart_xl330" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "uart_xl330" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_xl330_requested ON)
 endif()
 
-set(BUILD_UART_RM_DRIVER OFF)
-if(_uart_rm_requested)
-    if(EXISTS "${UART_RM_DRIVER_PATH}")
-        set(BUILD_UART_RM_DRIVER ON)
-        message(STATUS "Found UART RM driver at: ${UART_RM_DRIVER_PATH}")
-        set(UART_RM_SOURCES ${UART_RM_DRIVER_PATH}/src/drv_uart_xl330.c)
+set(BUILD_UART_XL330_DRIVER OFF)
+if(_uart_xl330_requested)
+    if(EXISTS "${UART_XL330_DRIVER_PATH}")
+        set(BUILD_UART_XL330_DRIVER ON)
+        message(STATUS "Found UART XL330 driver at: ${UART_XL330_DRIVER_PATH}")
+        set(UART_XL330_SOURCES ${UART_XL330_DRIVER_PATH}/src/drv_uart_xl330.c)
         set(RUST_LIB_NAME "reachy_mini_motor_controller")
-        set(RUST_LIB_PATH "${UART_RM_DRIVER_PATH}/target/release/lib${RUST_LIB_NAME}.a")
+        set(RUST_LIB_PATH "${UART_XL330_DRIVER_PATH}/target/release/lib${RUST_LIB_NAME}.a")
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
-        if(NOT EXISTS "${UART_RM_DRIVER_PATH}")
-            message(WARNING "UART RM driver requested but not found at: ${UART_RM_DRIVER_PATH}")
+        if(NOT EXISTS "${UART_XL330_DRIVER_PATH}")
+            message(WARNING "UART XL330 driver requested but not found at: ${UART_XL330_DRIVER_PATH}")
         endif()
     endif()
 endif()
@@ -257,10 +257,10 @@ if(BUILD_ECAT_JMC_DRIVER)
     )
 endif()
 
-# Add UART RM motor driver if available
-if(BUILD_UART_RM_DRIVER)
+# Add UART XL330 motor driver if available
+if(BUILD_UART_XL330_DRIVER)
     list(APPEND MOTOR_DRIVER_SOURCES
-        ${UART_RM_SOURCES}
+        ${UART_XL330_SOURCES}
     )
     # Ensure cargo build is run before motor is built
     # we'll use add_dependencies later on the motor target
@@ -320,9 +320,9 @@ target_link_libraries(motor PUBLIC
     stdc++
 )
 
-# Link Rust core for UART RM if built
-if(BUILD_UART_RM_DRIVER)
-    add_dependencies(motor uart_rm_cargo_build)
+# Link Rust core for UART XL330 if built
+if(BUILD_UART_XL330_DRIVER)
+    add_dependencies(motor uart_xl330_cargo_build)
     target_link_libraries(motor PUBLIC "${RUST_LIB_PATH}")
     # Rust staticlib might need dl and m
     target_link_libraries(motor PUBLIC dl m)
@@ -353,7 +353,7 @@ install(TARGETS motor EXPORT motorTargets
     LIBRARY DESTINATION lib
 )
 
-if(BUILD_UART_RM_DRIVER)
+if(BUILD_UART_XL330_DRIVER)
     install(FILES "${RUST_LIB_PATH}" DESTINATION lib)
 endif()
 
@@ -371,7 +371,7 @@ include(CMakePackageConfigHelpers)
 
 # Determine extra link flags for consumers (whole-archive + Rust lib)
 set(_MOTOR_EXTRA_LINK_LIBS "")
-if(BUILD_UART_RM_DRIVER)
+if(BUILD_UART_XL330_DRIVER)
     set(_MOTOR_RUST_LIB "\${CMAKE_INSTALL_PREFIX}/lib/libreachy_mini_motor_controller.a")
     set(_MOTOR_EXTRA_LINK_LIBS "${_MOTOR_RUST_LIB}")
 endif()
@@ -485,8 +485,8 @@ if(BUILD_TESTS)
         install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
     endif()
 
-    # UART RM motor test (XL330/XC330)
-    if(BUILD_UART_RM_DRIVER)
+    # UART XL330 motor test (XL330/XC330)
+    if(BUILD_UART_XL330_DRIVER)
         add_executable(test_motor_xl330 test/test_uart_xl330.c)
         set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_xl330 PRIVATE
@@ -503,9 +503,9 @@ if(BUILD_TESTS)
     endif()
 
 
-    # UART RM motor tests moved to src/drivers/drv_uart_rm/CMakeLists.txt
+    # UART XL330 motor tests moved to src/drivers/drv_uart_xl330/CMakeLists.txt
 endif()
 
-if(BUILD_UART_RM_DRIVER)
-    add_subdirectory(src/drivers/drv_uart_rm)
+if(BUILD_UART_XL330_DRIVER)
+    add_subdirectory(src/drivers/drv_uart_xl330)
 endif()

@@ -15,7 +15,7 @@
 /**
  * @brief Reachy Mini Motor Driver Example (XL330)
  *
- * This example demonstrates how to use the "drv_uart_rm" driver to control
+ * This example demonstrates how to use the "drv_uart_xl330" driver to control
  * a single motor (e.g., Body Yaw).
  * It implements a sine-wave trajectory (+-170 degrees) to test the motor's
  * full range of movement.
@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     /* 1. Allocate motor device (ID 10) */
     for (int i = 0; i < MOTOR_COUNT; i++) {
         uint8_t id = 10;  // Specific ID 10
-        devs[i] = motor_alloc_uart("drv_uart_rm", port, BAUDRATE, id, NULL);
+        devs[i] = motor_alloc_uart("drv_uart_xl330", port, BAUDRATE, id, NULL);
         if (!devs[i]) {
             fprintf(stderr, "Error: Failed to allocate motor ID %d\n", id);
             // Cleanup previously allocated
