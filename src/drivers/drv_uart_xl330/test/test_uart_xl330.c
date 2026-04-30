@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     /* 1. Allocate motor device (ID 10) */
     for (int i = 0; i < MOTOR_COUNT; i++) {
         uint8_t id = 10;  // Specific ID 10
-        devs[i] = motor_alloc_uart("drv_uart_rm", port, BAUDRATE, id, NULL);
+        devs[i] = motor_alloc_uart("drv_uart_xl330", port, BAUDRATE, id, NULL);
         if (!devs[i]) {
             fprintf(stderr, "Error: Failed to allocate motor ID %d\n", id);
             // Cleanup previously allocated

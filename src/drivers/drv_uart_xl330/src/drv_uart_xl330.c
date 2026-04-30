@@ -65,4 +65,4 @@ static struct motor_dev *reachy_motor_factory(void *args) {
 }
 
 /* --- Registration --- */
-REGISTER_MOTOR_DRIVER("drv_uart_rm", DRV_TYPE_UART, reachy_motor_factory);
+REGISTER_MOTOR_DRIVER("drv_uart_xl330", DRV_TYPE_UART, reachy_motor_factory);
