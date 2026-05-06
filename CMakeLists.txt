@@ -148,6 +148,17 @@ find_library(ETHERCAT_LIBRARY
     NAMES ethercat
     PATHS /usr/local/lib /usr/lib /usr/lib64
 )
+# Fallback: search for versioned shared library (e.g. libethercat.so.1) in case
+# the unversioned symlink libethercat.so was not created by the install.
+if(NOT ETHERCAT_LIBRARY)
+    set(_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so.1" ".so.2")
+    find_library(ETHERCAT_LIBRARY
+        NAMES ethercat
+        PATHS /usr/local/lib /usr/lib /usr/lib64
+    )
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_saved_suffixes})
+endif()
 if(ETHERCAT_LIBRARY)
     message(STATUS "Found ethercat library: ${ETHERCAT_LIBRARY}")
 else()
@@ -167,8 +178,6 @@ if(_ecat_jmc_requested)
     if(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND ETHERCAT_LIBRARY)
         set(BUILD_ECAT_JMC_DRIVER ON)
         message(STATUS "Found ECAT JMC driver at: ${ECAT_JMC_DRIVER_PATH}")
-    elseif(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND NOT ETHERCAT_LIBRARY)
-        message(WARNING "ECAT JMC driver found but ethercat library is missing, skipping driver")
 
         include_directories(
             ${ECAT_JMC_DRIVER_PATH}/include
@@ -178,6 +187,8 @@ if(_ecat_jmc_requested)
             ${ECAT_JMC_DRIVER_PATH}/src/jmc_ihss42.c
             ${ECAT_JMC_DRIVER_PATH}/src/drv_ethercat_jmc_adapter.c
         )
+    elseif(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND NOT ETHERCAT_LIBRARY)
+        message(WARNING "ECAT JMC driver found but ethercat library is missing, skipping driver")
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         if(NOT EXISTS "${ECAT_JMC_DRIVER_PATH}")
             message(WARNING "ECAT JMC driver requested but not found at: ${ECAT_JMC_DRIVER_PATH}")
