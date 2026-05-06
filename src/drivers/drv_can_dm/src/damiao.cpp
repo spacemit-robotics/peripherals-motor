@@ -87,9 +87,10 @@ Motor_Control::Motor_Control(std::string bus_name, std::unordered_map<uint16_t, 
     }
     int thread_priority = 95;
     while (!socket_can_.open(bus_name, boost::bind(&Motor_Control::canframeCallback, this, boost::placeholders::_1),
-                            thread_priority))
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));    enable_all();  // 使能该接口下的所有电机
+                            thread_priority)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    enable_all();  // 使能该接口下的所有电机
     // usleep(1000000);//1s
     std::cout << "Motor_Control init success!" << std::endl;
 }
