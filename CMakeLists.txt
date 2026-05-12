@@ -143,22 +143,11 @@ set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_j
 # UART XL330 driver path
 set(UART_XL330_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_xl330")
 
-# Find ethercat library (IgH EtherCAT Master)
+# Find ethercat library (IgH EtherCAT Master).
+# Rely on CMAKE_PREFIX_PATH (set by build system) for portable resolution.
 find_library(ETHERCAT_LIBRARY
-    NAMES ethercat
-    PATHS /usr/local/lib /usr/lib /usr/lib64
+    NAMES ethercat libethercat.so.1
 )
-# Fallback: search for versioned shared library (e.g. libethercat.so.1) in case
-# the unversioned symlink libethercat.so was not created by the install.
-if(NOT ETHERCAT_LIBRARY)
-    set(_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so.1" ".so.2")
-    find_library(ETHERCAT_LIBRARY
-        NAMES ethercat
-        PATHS /usr/local/lib /usr/lib /usr/lib64
-    )
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_saved_suffixes})
-endif()
 if(ETHERCAT_LIBRARY)
     message(STATUS "Found ethercat library: ${ETHERCAT_LIBRARY}")
 else()
@@ -211,7 +200,12 @@ if(_uart_xl330_requested)
         message(STATUS "Found UART XL330 driver at: ${UART_XL330_DRIVER_PATH}")
         set(UART_XL330_SOURCES ${UART_XL330_DRIVER_PATH}/src/drv_uart_xl330.c)
         set(RUST_LIB_NAME "reachy_mini_motor_controller")
-        set(RUST_LIB_PATH "${UART_XL330_DRIVER_PATH}/target/release/lib${RUST_LIB_NAME}.a")
+        # Persistent cargo output directory that survives cmake clean.
+        # Default: sibling to cmake build dir. Override via -DRUST_TARGET_DIR=...
+        set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/../cargo/xl330" CACHE PATH
+            "Cargo target directory for XL330 Rust driver (persistent across cmake clean)")
+        get_filename_component(RUST_TARGET_DIR "${RUST_TARGET_DIR}" ABSOLUTE)
+        set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         if(NOT EXISTS "${UART_XL330_DRIVER_PATH}")
             message(WARNING "UART XL330 driver requested but not found at: ${UART_XL330_DRIVER_PATH}")
@@ -334,6 +328,8 @@ target_link_libraries(motor PUBLIC
 # Link Rust core for UART XL330 if built
 if(BUILD_UART_XL330_DRIVER)
     add_dependencies(motor uart_xl330_cargo_build)
+    # Mark the Rust .a as generated so CMake doesn't complain about missing file at configure time
+    set_source_files_properties("${RUST_LIB_PATH}" PROPERTIES GENERATED TRUE)
     target_link_libraries(motor PUBLIC "${RUST_LIB_PATH}")
     # Rust staticlib might need dl and m
     target_link_libraries(motor PUBLIC dl m)
