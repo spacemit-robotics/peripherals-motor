@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sched.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -46,8 +47,17 @@ static motor_config_ecat_jmc_t g_motor_configs[MAX_ADAPTER_MOTORS];
 
 /* Background thread for EtherCAT cyclic task */
 static void* ecat_background_thread(void* arg) {
+    // Set real-time priority
+    struct sched_param param;
+    param.sched_priority = 80;
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+        fprintf(stderr, "[Adapter] WARNING: Failed to set SCHED_FIFO for EtherCAT thread. "
+                        "Check permissions or CAP_SYS_NICE.\n");
+    }
+
     uint32_t cycle_time_ns = g_requested_cycle_ms * 1000000;
     uint64_t next_cycle = ec_get_time_ns();
+    uint32_t overrun_count = 0;
 
     while (g_ec_ctx.running) {
         // Fine-grained locking: only protect mandatory master/domain calls
@@ -64,7 +74,15 @@ static void* ecat_background_thread(void* arg) {
         cycle_time_ns = g_ec_ctx.cycle_time_ns;
         next_cycle += cycle_time_ns;
         uint64_t now = ec_get_time_ns();
-        if (now < next_cycle) {
+
+        if (now >= next_cycle) {
+            overrun_count++;
+            if (overrun_count % 200 == 0) {
+                fprintf(stderr, "[Adapter] WARNING: EtherCAT loop overrun detected (%u times)\n", overrun_count);
+            }
+            // Reset next_cycle to current time to prevent burst catch-up
+            next_cycle = now + cycle_time_ns;
+        } else {
             struct timespec ts;
             uint64_t sleep_time = next_cycle - now;
             ts.tv_sec = sleep_time / 1000000000ULL;
@@ -134,7 +152,29 @@ static int adapter_init(struct motor_dev* dev) {
 
         // 主站激活后开始周期性任务
         g_ec_ctx.running = 1;
-        pthread_create(&g_ec_thread, NULL, ecat_background_thread, NULL);
+
+        // 设置 RT 优先级，防止被 ROS2 线程抢占导致从站 watchdog 超时
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+        pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+        struct sched_param sp;
+        sp.sched_priority = 80;  // 高于默认线程，低于内核中断线程
+        pthread_attr_setschedparam(&attr, &sp);
+
+        if (pthread_create(&g_ec_thread, &attr, ecat_background_thread, NULL) != 0) {
+            // 如果 RT 创建失败（无 root 权限），回退到普通线程
+            printf("[Adapter] WARNING: Failed to create RT thread, falling back to normal priority\n");
+            if (pthread_create(&g_ec_thread, NULL, ecat_background_thread, NULL) != 0) {
+                fprintf(stderr, "[Adapter] ERROR: Failed to create EtherCAT background thread\n");
+                g_ec_ctx.running = 0;
+                pthread_attr_destroy(&attr);
+                pthread_mutex_unlock(&g_ec_mutex);
+                return -1;
+            }
+        }
+        pthread_attr_destroy(&attr);
+
         g_ec_initialized = true;
     }
     pthread_mutex_unlock(&g_ec_mutex);
@@ -153,11 +193,8 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
 
     if (motor->mode != ec_mode) {
         ec_set_motor_mode(&g_ec_ctx, motor_idx, ec_mode);
-        // Reset anchoring state on mode switch to ensure new mode starts correctly
-        if (motor->cia402_state == EC_STATE_RUNNING) {
-            motor->motion.start_pos_set = 1;
-            printf("[Adapter] M%d Mode switch to %s, re-triggering anchor\n", motor_idx, ec_mode_name(ec_mode));
-        }
+        // Force re-anchor on mode switch so position offset is recalculated
+        motor->motion.start_pos_set = 1;
     }
 
     // Universal Anchoring Logic:
@@ -170,8 +207,8 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
             motor->motion.start_pos = ec_get_actual_position(&g_ec_ctx, motor_idx);
             motor->motion.app_start_pos = cmd_pulses;
             motor->motion.start_pos_set = 2;
-            printf("[Adapter] M%d Pos-Anchored: Physical=%d, App=%d\n", motor_idx, motor->motion.start_pos,
-                    motor->motion.app_start_pos);
+            printf("[Adapter] M%d Pos-Anchored: Physical=%d, App=%d, mode=%s\n", motor_idx, motor->motion.start_pos,
+                    motor->motion.app_start_pos, ec_mode_name(ec_mode));
         } else {
             // Other modes (Velocity/Torque/Homing): Just unlock the safety gate
             motor->motion.start_pos_set = 2;
@@ -219,6 +256,11 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
         if (motor->motion.hm_state == 0) {
             ec_hm_start(&g_ec_ctx, motor_idx);
         }
+    }
+
+    if (motor_idx == 0 && (g_ec_ctx.cycle_count % 200 == 0)) {
+        printf("[Adapter] M%d Debug: target_pos=%d, mode=%s, cia402=%d\n",
+                motor_idx, motor->motion.target_pos, ec_mode_name(motor->mode), motor->cia402_state);
     }
     pthread_mutex_unlock(&g_ec_mutex);
     return 0;
@@ -296,8 +338,7 @@ static int adapter_get_paras(struct motor_dev* dev, const void* address, void* o
 
 static void adapter_free(struct motor_dev* dev) {
     if (!dev) return;
-    /* Optional: reference counting logic for stopping thread and master_release
-     */
+    /* Optional: reference counting logic for stopping thread and master_release */
     free(dev);
 }
 
