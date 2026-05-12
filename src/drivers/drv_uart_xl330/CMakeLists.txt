@@ -7,19 +7,52 @@ option(BUILD_TESTS "Build test programs" ON)
 
 # Integration with Cargo
 set(RUST_LIB_NAME "reachy_mini_motor_controller")
-set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/release/lib${RUST_LIB_NAME}.a")
+# Place cargo build output in a persistent directory outside the cmake build tree.
+# This ensures incremental Rust builds remain fast even after cmake clean/reconfigure.
+# The parent CMakeLists.txt sets RUST_TARGET_DIR; fall back for standalone builds.
+if(NOT DEFINED RUST_TARGET_DIR)
+    set(RUST_TARGET_DIR "${CMAKE_INSTALL_PREFIX}/../build/cargo/xl330")
+    get_filename_component(RUST_TARGET_DIR "${RUST_TARGET_DIR}" ABSOLUTE)
+endif()
+set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
 
-# Add a custom command to run cargo build
+# Collect Rust source files so CMake re-triggers cargo when they change.
+# Cargo itself handles incremental compilation — only your crate is rebuilt,
+# not the 50+ dependency crates (those are cached in RUST_TARGET_DIR).
+#
+# NOTE: GLOB_RECURSE only runs at cmake configure time. If you add new .rs files,
+# re-run cmake (or just run mm which does it automatically).
+file(GLOB_RECURSE RUST_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.lock"
+)
+
+# Use a stamp file so that cargo is always invoked when sources change.
+# Cargo handles its own fine-grained incrementality internally (~0.1s no-op).
+set(RUST_STAMP_FILE "${RUST_TARGET_DIR}/.build_stamp")
+
 add_custom_command(
-    OUTPUT "${RUST_LIB_PATH}"
-    COMMAND cargo build --release
+    OUTPUT "${RUST_STAMP_FILE}"
+    # CARGO_INCREMENTAL=1: enable incremental compilation even in release mode.
+    # This dramatically speeds up rebuilds when only a few functions change
+    # (seconds instead of recompiling the entire crate from scratch).
+    COMMAND ${CMAKE_COMMAND} -E env CARGO_INCREMENTAL=1
+            cargo build --release --target-dir "${RUST_TARGET_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${RUST_STAMP_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Building Rust core for UART XL330 driver via Cargo"
+    DEPENDS ${RUST_SOURCES}
+    COMMENT "Building Rust core for UART XL330 driver via Cargo (incremental, output: ${RUST_TARGET_DIR})"
     VERBATIM
 )
 
-# Add a custom target that depends on the library file
-add_custom_target(uart_xl330_cargo_build DEPENDS "${RUST_LIB_PATH}")
+# Add a custom target that depends on the stamp file.
+# The actual .a library is a byproduct — cargo updates it only when content changes.
+add_custom_target(uart_xl330_cargo_build DEPENDS "${RUST_STAMP_FILE}")
+
+# Tell CMake the .a file is produced as a byproduct of the stamp command,
+# so downstream targets can link against it without a circular dependency.
+set_source_files_properties("${RUST_LIB_PATH}" PROPERTIES GENERATED TRUE)
 
 # Define source files for this driver
 set(UART_XL330_SOURCES
