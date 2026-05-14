@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Option to enable debug tools
 option(DEBUG "Enable debug tools compilation" OFF)
+option(FEETECH_TIMESTAMP_DEBUG "Enable timestamp debug prints in feetech driver" OFF)
 
 # Get all source files
 file(GLOB FEETECH_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
@@ -37,6 +38,10 @@ target_include_directories(test_motor_uart PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../            # motor_core.h
 )
 target_link_libraries(test_motor_uart pthread)
+
+if(FEETECH_TIMESTAMP_DEBUG)
+  target_compile_definitions(test_motor_uart PRIVATE FEETECH_TIMESTAMP_DEBUG)
+endif()
 
 
 

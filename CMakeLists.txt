@@ -51,6 +51,9 @@ endif()
 set(FEETECH_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_feetech")
 set(PWM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
 
+# Feetech timestamp debug option
+option(FEETECH_TIMESTAMP_DEBUG "Enable timestamp debug prints in feetech driver" OFF)
+
 # Decide whether Feetech is requested:
 set(_feetech_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -148,6 +151,17 @@ set(UART_XL330_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_xl3
 find_library(ETHERCAT_LIBRARY
     NAMES ethercat libethercat.so.1
 )
+# Fallback: search for versioned shared library (e.g. libethercat.so.1) in case
+# the unversioned symlink libethercat.so was not created by the install.
+if(NOT ETHERCAT_LIBRARY)
+    set(_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so.1" ".so.2")
+    find_library(ETHERCAT_LIBRARY
+        NAMES ethercat
+        PATHS /usr/local/lib /usr/lib /usr/lib64
+    )
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_saved_suffixes})
+endif()
 if(ETHERCAT_LIBRARY)
     message(STATUS "Found ethercat library: ${ETHERCAT_LIBRARY}")
 else()
@@ -299,6 +313,9 @@ endif()
 # Link pthread for Feetech driver (if using threads)
 if(BUILD_FEETECH_DRIVER)
     target_link_libraries(motor PUBLIC pthread)
+    if(FEETECH_TIMESTAMP_DEBUG)
+        target_compile_definitions(motor PRIVATE FEETECH_TIMESTAMP_DEBUG)
+    endif()
 endif()
 
 # Link pthread for CAN DM driver (if using threads)

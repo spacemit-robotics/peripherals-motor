@@ -10,12 +10,14 @@
 #include <iostream>
 
 
+#ifdef FEETECH_TIMESTAMP_DEBUG
 // 获取当前时间戳（纳秒）
 static int64_t get_timestamp_ns() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
 }
+#endif
 
 // 建立串口连接
 int FeetechPack::init_pack(int argc, char **argv) {
@@ -28,23 +30,30 @@ int FeetechPack::init_pack(int argc, char **argv) {
 }
 
 void FeetechPack::send_pack_data(FeetechData *data, int num) {
+#ifdef FEETECH_TIMESTAMP_DEBUG
     int64_t t1, t2, t3;
-
     t1 = get_timestamp_ns();
+#endif
+
     for (int i = 0; i < num; i++) {
         sms_sts.RegWritePosEx(data[i].id, data[i].des_position, data[i].des_speed,
                             data[i].des_acceleration);
     }
+
+#ifdef FEETECH_TIMESTAMP_DEBUG
     t2 = get_timestamp_ns();
+#endif
 
     sms_sts.RegWriteAction(0xfe);  // 广播执行异步写入指令
-    t3 = get_timestamp_ns();
 
+#ifdef FEETECH_TIMESTAMP_DEBUG
+    t3 = get_timestamp_ns();
     std::cout << "[Timestamp] RegWrite: " << t1 << " ns, done: " << t2
         << " ns (cost " << (t2 - t1) << " ns)" << std::endl;
     std::cout << "[Timestamp] Broadcast: " << t2 << " ns, done: " << t3
         << " ns (cost " << (t3 - t2) << " ns)" << std::endl;
     std::cout << "[Timestamp] Total send cost: " << (t3 - t1) << " ns" << std::endl;
+#endif
 }
 
 void FeetechPack::recv_unpack_data(FeetechData *data, int num) {
