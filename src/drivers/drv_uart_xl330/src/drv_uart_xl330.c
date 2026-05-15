@@ -11,6 +11,10 @@ extern int reachy_motor_set_cmd(struct motor_dev *dev,
 extern int reachy_motor_get_state(struct motor_dev *dev,
     struct motor_state *state);
 extern void reachy_motor_free(struct motor_dev *dev);
+extern int reachy_motor_set_paras(struct motor_dev *dev,
+    const void *address, const void *data, uint32_t data_len);
+extern int reachy_motor_get_paras(struct motor_dev *dev,
+    const void *address, void *out_data, uint32_t data_len);
 
 /* --- Cleanup implemented in C to free local allocations --- */
 void reachy_motor_free_wrapper(struct motor_dev *dev) {
@@ -29,6 +33,8 @@ static const struct motor_ops reachy_ops = {
     .set_cmd = reachy_motor_set_cmd,
     .get_state = reachy_motor_get_state,
     .free = reachy_motor_free_wrapper,
+    .set_paras = reachy_motor_set_paras,
+    .get_paras = reachy_motor_get_paras,
 };
 
 /* --- Private Data Structure --- */
