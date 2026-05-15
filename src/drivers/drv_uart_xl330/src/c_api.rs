@@ -106,7 +106,15 @@ pub extern "C" fn reachy_motor_set_cmd(dev: *mut MotorDev, cmd: *const MotorCmd)
         
         // Ensure torque is enabled for other control modes
         // (Position is 0, Vel is 1, Trq is 2)
-        
+
+        // Write Profile Velocity (register 112) if vel_des > 0
+        // XL330 unit: 0.229 RPM per raw unit
+        // Conversion: raw = vel_des(rad/s) / (2π/60 * 0.229) = vel_des * 60 / (2π * 0.229)
+        if cmd.vel_des > 0.0 {
+            let raw_vel = (cmd.vel_des as f64 * 60.0 / (2.0 * std::f64::consts::PI * 0.229)) as u32;
+            let _ = c.write_raw_bytes(motor_id, 112, &raw_vel.to_le_bytes());
+        }
+
         // We convert rad to the servo's raw resolution (center ~2048)
         let raw_pos = (cmd.pos_des * (2048.0 / std::f32::consts::PI) + 2048.0) as f64;
         
@@ -157,4 +165,73 @@ pub extern "C" fn reachy_motor_free(dev: *mut MotorDev) {
         let _ = c.disable_torque_on_ids(&[motor_id]);
     }
     // We don't free the global controller here, just the C-side dev struct if needed
+}
+
+/// Write raw bytes to a register address on the XL330 servo.
+/// `address` points to a u16 register address, `data` points to the raw bytes,
+/// `data_len` is the number of bytes to write (1, 2, or 4).
+#[unsafe(no_mangle)]
+pub extern "C" fn reachy_motor_set_paras(
+    dev: *mut MotorDev,
+    address: *const c_void,
+    data: *const c_void,
+    data_len: u32,
+) -> i32 {
+    if dev.is_null() || address.is_null() || data.is_null() {
+        return -1;
+    }
+
+    let priv_ptr = unsafe { (*dev).priv_data as *const ReachyPriv };
+    let motor_id = unsafe { (*priv_ptr).id };
+    let reg_addr = unsafe { *(address as *const u16) } as u8;
+    let raw_data = unsafe { std::slice::from_raw_parts(data as *const u8, data_len as usize) };
+
+    let mut lock = CONTROLLER.lock().unwrap();
+    if let Some(c) = lock.as_mut() {
+        if c.write_raw_bytes(motor_id, reg_addr, raw_data).is_err() {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+    0
+}
+
+/// Read raw bytes from a register address on the XL330 servo.
+/// `address` points to a u16 register address, `out_data` is the output buffer,
+/// `data_len` is the number of bytes to read (1, 2, or 4).
+#[unsafe(no_mangle)]
+pub extern "C" fn reachy_motor_get_paras(
+    dev: *mut MotorDev,
+    address: *const c_void,
+    out_data: *mut c_void,
+    data_len: u32,
+) -> i32 {
+    if dev.is_null() || address.is_null() || out_data.is_null() {
+        return -1;
+    }
+
+    let priv_ptr = unsafe { (*dev).priv_data as *const ReachyPriv };
+    let motor_id = unsafe { (*priv_ptr).id };
+    let reg_addr = unsafe { *(address as *const u16) } as u8;
+
+    let mut lock = CONTROLLER.lock().unwrap();
+    if let Some(c) = lock.as_mut() {
+        match c.read_raw_bytes(motor_id, reg_addr, data_len as u8) {
+            Ok(bytes) => {
+                let copy_len = std::cmp::min(bytes.len(), data_len as usize);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        bytes.as_ptr(),
+                        out_data as *mut u8,
+                        copy_len,
+                    );
+                }
+            }
+            Err(_) => return -1,
+        }
+    } else {
+        return -1;
+    }
+    0
 }
