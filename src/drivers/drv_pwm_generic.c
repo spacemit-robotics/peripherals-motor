@@ -217,14 +217,14 @@ static int pwm_gpio_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd)
     }
 
 
-    priv->thread_ptr = (pthread_t *)malloc(sizeof(pthread_t));
-    priv->attr = (pthread_attr_t *)malloc(sizeof(pthread_attr_t));
+    priv->thread_ptr = malloc(sizeof(pthread_t));
+    priv->attr = malloc(sizeof(pthread_attr_t));
     pthread_attr_init(priv->attr);
     pthread_attr_setdetachstate(priv->attr, PTHREAD_CREATE_DETACHED);
 
     run_flag = true;
 
-    if (pthread_create(priv->thread_ptr, priv->attr, pwm_gpio_thread_wrapper, (void*)priv) != 0) {
+    if (pthread_create(priv->thread_ptr, priv->attr, pwm_gpio_thread_wrapper, priv) != 0) {
         printf("线程创建失败\n");
         free(priv->thread_ptr);
         free(priv->attr);
