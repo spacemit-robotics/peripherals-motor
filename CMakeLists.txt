@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(motor LANGUAGES C CXX)
+include(CheckCSourceCompiles)
 
 # Semicolon-separated list of enabled drivers; when set, only requested drivers are built.
 # Example: -DSROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS=drv_can_generic;drv_pwm_generic
@@ -303,11 +304,27 @@ if(NOT LIBGPIOD_FOUND)
     message(WARNING "libgpiod not found. Please install it: sudo apt-get install libgpiod-dev")
 endif()
 
-# 获取版本号并传递给编译器
-if(LIBGPIOD_VERSION VERSION_LESS "2.0.0")
-    add_definitions(-DLIBGPIOD_V1)
+# Detect the usable libgpiod API from headers. Some target sysroots report a
+# 2.x pkg-config version while exposing the v1-compatible header API.
+if(LIBGPIOD_FOUND)
+    set(CMAKE_REQUIRED_INCLUDES ${LIBGPIOD_INCLUDE_DIRS})
+    set(CMAKE_REQUIRED_LIBRARIES ${LIBGPIOD_LIBRARIES})
+    check_c_source_compiles("
+        #include <gpiod.h>
+        int main(void) {
+            enum gpiod_line_value v = GPIOD_LINE_VALUE_ACTIVE;
+            (void)v;
+            return 0;
+        }
+    " LIBGPIOD_HAS_V2_VALUE_API)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+endif()
+
+if(LIBGPIOD_HAS_V2_VALUE_API)
+    target_compile_definitions(motor PRIVATE LIBGPIOD_V2)
 else()
-    add_definitions(-DLIBGPIOD_V2)
+    target_compile_definitions(motor PRIVATE LIBGPIOD_V1)
 endif()
 
 # Link pthread for Feetech driver (if using threads)

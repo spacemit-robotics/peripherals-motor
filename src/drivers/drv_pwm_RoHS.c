@@ -90,6 +90,42 @@ struct pwm_RoHS_priv {
 #define STEP_MOTOR_3_MAX_STEPS 900
 #define STEP_MOTOR_MAX_STEPS(index) STEP_MOTOR_##index##_MAX_STEPS
 
+#if defined(LIBGPIOD_V2)
+static inline enum gpiod_line_value gpiod_value_from_bool(bool value)
+{
+    return value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
+}
+#endif
+
+static inline int disabled_enable_level(const struct pwm_RoHS_info *motor_info)
+{
+    return motor_info->enable_gpio_level ? 0 : 1;
+}
+
+static int step_motor_set_enable_disabled(struct pwm_RoHS_priv *priv)
+{
+    if (!priv) {
+        return -1;
+    }
+
+#if defined(LIBGPIOD_V2)
+    if (!priv->req_enable) {
+        return -1;
+    }
+    return gpiod_line_request_set_value(
+        priv->req_enable,
+        priv->offset_enable,
+        gpiod_value_from_bool(disabled_enable_level(&priv->info)));
+#else
+    if (!priv->line_enable) {
+        return -1;
+    }
+    return gpiod_line_set_value(
+        priv->line_enable,
+        disabled_enable_level(&priv->info));
+#endif
+}
+
 
 static inline int read_from_file_return_int(const char* filename) {
     char buffer[BUFFER_SIZE] = {""};
@@ -507,6 +543,7 @@ static int step_motor_init(struct motor_dev *dev)
 
 
 #if defined(LIBGPIOD_V2)
+    struct gpiod_line_settings *settings_enable = NULL;
 
     priv->settings_out = gpiod_line_settings_new();
     if (!priv->settings_out) {
@@ -523,9 +560,29 @@ static int step_motor_init(struct motor_dev *dev)
     gpiod_line_settings_set_direction(priv->settings_out, GPIOD_LINE_DIRECTION_OUTPUT);
     gpiod_line_settings_set_output_value(priv->settings_out, GPIOD_LINE_VALUE_INACTIVE);
 
+    settings_enable = gpiod_line_settings_new();
+    if (!settings_enable) {
+        fprintf(stderr, "Failed to create enable line settings\n");
+        gpiod_line_settings_free(priv->settings_out);
+        gpiod_chip_close(priv->chip_step);
+        gpiod_chip_close(priv->chip_dir);
+        gpiod_chip_close(priv->chip_enable);
+        if (priv->chip_stop) {
+            gpiod_chip_close(priv->chip_stop);
+        }
+        free(priv);
+        return -1;
+    }
+    gpiod_line_settings_set_direction(settings_enable, GPIOD_LINE_DIRECTION_OUTPUT);
+    gpiod_line_settings_set_output_value(
+        settings_enable,
+        gpiod_value_from_bool(disabled_enable_level(&priv->info)));
+
     priv->settings_in = gpiod_line_settings_new();
     if (!priv->settings_in) {
         fprintf(stderr, "Failed to create line settings\n");
+        gpiod_line_settings_free(settings_enable);
+        gpiod_line_settings_free(priv->settings_out);
         gpiod_chip_close(priv->chip_step);
         gpiod_chip_close(priv->chip_dir);
         gpiod_chip_close(priv->chip_enable);
@@ -548,7 +605,7 @@ static int step_motor_init(struct motor_dev *dev)
     offset = priv->offset_dir;
     gpiod_line_config_add_line_settings(priv->lcfg_dir, &offset, 1, priv->settings_out);
     offset = priv->offset_enable;
-    gpiod_line_config_add_line_settings(priv->lcfg_enable, &offset, 1, priv->settings_out);
+    gpiod_line_config_add_line_settings(priv->lcfg_enable, &offset, 1, settings_enable);
     if (priv->chip_stop) {
         offset = priv->offset_stop;
         gpiod_line_config_add_line_settings(priv->lcfg_stop, &offset, 1, priv->settings_in);
@@ -588,6 +645,7 @@ static int step_motor_init(struct motor_dev *dev)
             gpiod_line_config_free(priv->lcfg_stop);
         }
         gpiod_line_settings_free(priv->settings_out);
+        gpiod_line_settings_free(settings_enable);
         gpiod_line_settings_free(priv->settings_in);
         gpiod_chip_close(priv->chip_step);
         gpiod_chip_close(priv->chip_dir);
@@ -598,6 +656,7 @@ static int step_motor_init(struct motor_dev *dev)
         free(priv);
         return -1;
     }
+    gpiod_line_settings_free(settings_enable);
 
 #else
     priv->line_step = gpiod_chip_get_line(chip, priv->info.step_gpio);
@@ -618,7 +677,8 @@ static int step_motor_init(struct motor_dev *dev)
     }
 
     priv->line_enable = gpiod_chip_get_line(chip, priv->info.enable_gpio);
-    if (!priv->line_enable || gpiod_line_request_output(priv->line_enable, "out", 0) < 0) {
+    if (!priv->line_enable || gpiod_line_request_output(
+            priv->line_enable, "out", disabled_enable_level(&priv->info)) < 0) {
         gpiod_line_release(priv->line_step);
         gpiod_line_release(priv->line_dir);
         gpiod_chip_close(chip);
@@ -644,6 +704,8 @@ static int step_motor_init(struct motor_dev *dev)
 #endif
 
 #if defined(LIBGPIOD_V2)
+    step_motor_set_enable_disabled(priv);
+
     if (priv->info.stop_gpio != 0) {
         char max_steps_path[256];
         snprintf(max_steps_path, sizeof(max_steps_path), "/root/.motor_%d_max_steps", priv->info.motor_index);
@@ -674,7 +736,17 @@ static int step_motor_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd
 
     // printf("%s, pos_des=%f, vel_des=%f, priv->info.step_gpio=%d\n", __func__, cmd->pos_des, cmd->vel_des,
     //        priv->info.step_gpio);
-    step_motor_rotating_angle_control(dev, (int)cmd->pos_des, (int)cmd->vel_des);
+    if (cmd->mode == MOTOR_MODE_IDLE) {
+        step_motor_set_enable_disabled(priv);
+        priv->state.pos = cmd->pos_des;
+        priv->state.vel = 0.0f;
+        priv->state.trq = 0.0f;
+        return 0;
+    }
+
+    int pos_des = cmd->pos_des;
+    int vel_des = cmd->vel_des;
+    step_motor_rotating_angle_control(dev, pos_des, vel_des);
 
     /* Demo: mirror command into state */
     priv->state.pos = cmd->pos_des;
@@ -707,6 +779,8 @@ static void step_motor_free(struct motor_dev *dev) {
 
     // 释放gpio
 #if defined(LIBGPIOD_V2)
+    step_motor_set_enable_disabled(priv);
+
     if (priv->req_step) {
         gpiod_line_request_release(priv->req_step);
     }
@@ -764,6 +838,8 @@ static void step_motor_free(struct motor_dev *dev) {
         gpiod_chip_close(priv->chip_stop);
     }
 #else
+    step_motor_set_enable_disabled(priv);
+
     if (priv->line_step) {
         gpiod_line_release(priv->line_step);
     }
