@@ -217,7 +217,7 @@ typedef struct {
 
 //   线程函数包装器
 void* motor_thread_wrapper(void* arg) {
-    MotorParams* params = arg;
+    MotorParams* params = (MotorParams*)arg;
 
     //   调用实际的电机控制函数
     run_one_motor_test(params->motor_index,

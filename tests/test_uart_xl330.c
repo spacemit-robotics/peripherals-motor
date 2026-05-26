@@ -69,6 +69,14 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    /* Verify initialization success by checking for early async errors (e.g. invalid port) */
+    usleep(100000);
+    if (motor_get_states(devs, states, MOTOR_COUNT) == 0 && states[0].err != 0) {
+        fprintf(stderr, "Error: Motor reported fatal error 0x%X during initialization. Port may be invalid.\n", states[0].err);
+        motor_free(devs, MOTOR_COUNT);
+        return -1;
+    }
+
     printf("[Test] Motors initialized. Starting sine-wave motion...\n");
     printf("[Test] Amplitude: %.1f deg, Frequency: %.2f Hz, Duration: %.1f s\n", AMP_DEG, FREQ_HZ,
             DURATION_S);
@@ -112,9 +120,14 @@ int main(int argc, char *argv[]) {
             printf("\rTime: %5.2fs | Goal: %6.3f rad | Pos: %6.3f", elapsed, target_pos,
                     states[0].pos);
             if (states[0].err != 0) {
-                printf(" | ERR: 0x%X", states[0].err);
+                printf(" | ERR: 0x%X\n", states[0].err);
+                fprintf(stderr, "\n[Test] Fatal error (0x%X) detected. Aborting control loop.\n", states[0].err);
+                break;
             }
             fflush(stdout);
+        } else {
+            fprintf(stderr, "\n[Test] Failed to read motor states. Aborting control loop.\n");
+            break;
         }
 
         usleep(CONTROL_PERIOD_US);

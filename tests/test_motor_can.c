@@ -17,6 +17,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <net/if.h>
 
 #include "motor.h"
 
@@ -65,10 +68,33 @@ int main(int argc, char** argv) {
     struct motor_state states[NUM_MOTORS];
     struct motor_cmd cmd = {};
 
+    const char *driver = "drv_can_dm";
+    const char *iface = "can0";
+    uint8_t id = 0x02;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--driver") == 0 && i + 1 < argc) {
+            driver = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "--if") == 0 && i + 1 < argc) {
+            iface = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "--id") == 0 && i + 1 < argc) {
+            id = (uint8_t)strtol(argv[i + 1], NULL, 0);
+            i++;
+        }
+    }
+
+    // ========== 检查接口存活 ==========
+    if (if_nametoindex(iface) == 0) {
+        printf("Error: Interface %s does not exist.\n", iface);
+        return -1;
+    }
+
     // ========== 分配设备 ==========
     printf("=== Allocating motor devices ===\n");
-    devs[0] = motor_alloc_can("drv_can_dm", "can0", 0x02, NULL);
-    devs[1] = motor_alloc_can("drv_can_dm", "can0", 0x03, NULL);
+    devs[0] = motor_alloc_can(driver, iface, id, NULL);
+    devs[1] = motor_alloc_can(driver, iface, id + 1, NULL);
 
     for (int j = 0; j < NUM_MOTORS; j++) {
         if (!devs[j]) {

@@ -29,9 +29,11 @@ typedef struct {
     uint32_t profile_vel;
     uint32_t profile_acc;
     uint32_t profile_dec;
+    int verbose;  // 0: 静默, 1: 打印域数据分析等详细调试信息
 } motor_config_ecat_jmc_t;
 
 static volatile int g_running = 1;
+static int g_verbose = 0;
 
 static void signal_handler(int sig) {
     (void)sig;
@@ -41,9 +43,14 @@ static void signal_handler(int sig) {
 static void usage(const char* prog) {
     printf("用法: %s [选项]\n", prog);
     printf("选项:\n");
-    printf("  --motors N    电机数量 (默认 1, 最大 %d)\n", MAX_ECAT_MOTORS);
-    printf("  --cycle MS    控制周期 (默认 2 ms)\n");
-    printf("  --help        显示帮助信息\n");
+    printf("  -m, --motors N    电机数量 (默认 2, 最大 %d)\n", MAX_ECAT_MOTORS);
+    printf("  -c, --cycle MS    控制周期 (默认 2 ms, 建议 >=5)\n");
+    printf("  -v, --verbose     启用详细调试打印 (含驱动层域数据分析)\n");
+    printf("  -q, --quiet       禁用所有非必要打印 (默认)\n");
+    printf("  -h, --help        显示帮助信息\n");
+    printf("\n示例:\n");
+    printf("  %s -m 1 -c 10 -v    # 带详细输出\n", prog);
+    printf("  %s --motors 2 --cycle 5\n", prog);
 }
 
 static void sleep_ms(uint32_t ms) {
@@ -60,18 +67,29 @@ int main(int argc, char** argv) {
 
     static struct option long_opts[] = {{"motors", required_argument, 0, 'm'},
                                         {"cycle", required_argument, 0, 'c'},
+                                        {"verbose", no_argument, 0, 'v'},
+                                        {"quiet", no_argument, 0, 'q'},
                                         {"help", no_argument, 0, 'h'},
                                         {0, 0, 0, 0}};
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:c:h", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:c:vqh", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 motor_count = atoi(optarg);
                 break;
             case 'c':
                 cycle_ms = atoi(optarg);
-                if (cycle_ms == 0) cycle_ms = 1;
+                if (cycle_ms == 0) {
+                    fprintf(stderr, "警告: 无效的周期参数 '%s', 使用默认值 2 ms\n", optarg);
+                    cycle_ms = 2;
+                }
+                break;
+            case 'v':
+                g_verbose = 1;
+                break;
+            case 'q':
+                g_verbose = 0;
                 break;
             case 'h':
             default:
@@ -97,7 +115,8 @@ int main(int argc, char** argv) {
 
     // define shared config
     motor_config_ecat_jmc_t ecat_cfg = {
-        .cycle_ms = cycle_ms, .profile_vel = 100000, .profile_acc = 100000, .profile_dec = 100000};
+        .cycle_ms = cycle_ms, .profile_vel = 100000, .profile_acc = 100000, .profile_dec = 100000,
+        .verbose = g_verbose};
 
     // allocate motors
     for (int i = 0; i < motor_count; i++) {
@@ -125,21 +144,21 @@ int main(int argc, char** argv) {
     }address_info_t;
 
     // 写参数
-    printf("========================================\n");
-    printf("开始写参数测试...\n\n");
+    if (g_verbose) printf("========================================\n");
+    if (g_verbose) printf("开始写参数测试...\n\n");
     uint32_t max_accelate_w = 50000;
     // 写目标的索引+子索引+数据长度
     address_info_t address_info_w = {0x60C5, 00, 4};
     motor_set_paras(devs[0], &address_info_w, &max_accelate_w, sizeof(max_accelate_w));
-    printf("written max_accelate: %d\n", max_accelate_w);
+    if (g_verbose) printf("written max_accelate: %d\n", max_accelate_w);
 
     // 读参数
-    printf("========================================\n");
-    printf("开始读参数测试...\n\n");
+    if (g_verbose) printf("========================================\n");
+    if (g_verbose) printf("开始读参数测试...\n\n");
     uint32_t max_accelate_r;
     address_info_t address_info_r = {0x60C5, 00, 4};
     motor_get_paras(devs[0],  &address_info_r, &max_accelate_r, sizeof(max_accelate_r));
-    printf("最大加速度: %d\n", max_accelate_r);
+    if (g_verbose) printf("最大加速度: %d\n", max_accelate_r);
 
 
     uint32_t loop_count = 0;
@@ -287,7 +306,7 @@ int main(int argc, char** argv) {
             if (++stable_counts > (100 / cycle_ms)) break;
         } else {
             stable_counts = 0;
-            if (loop_count % (500 / cycle_ms) == 0) {
+            if (g_verbose && loop_count % (500 / cycle_ms) == 0) {
                 printf("等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
                         (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
@@ -317,7 +336,7 @@ int main(int argc, char** argv) {
             motor_get_states(devs, states, motor_count);
             motor_set_cmds(devs, cmds, motor_count);
 
-            if (t % (500 / cycle_ms) == 0) {
+            if (g_verbose && t % (500 / cycle_ms) == 0) {
                 printf("[M0] PP模式 - 目标: %.3f, 反馈: %.3f, 状态: 0x%04X\n", target, states[0].pos,
                         (uint16_t)states[0].err);
             }
@@ -367,7 +386,7 @@ int main(int argc, char** argv) {
             if (++pv_stable_counts > (100 / cycle_ms)) break;
         } else {
             pv_stable_counts = 0;
-            if (loop_count % (500 / cycle_ms) == 0) {
+            if (g_verbose && loop_count % (500 / cycle_ms) == 0) {
                 printf("PV 等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
                         (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
@@ -396,7 +415,7 @@ int main(int argc, char** argv) {
             motor_get_states(devs, states, motor_count);
             motor_set_cmds(devs, cmds, motor_count);
 
-            if (t % (500 / cycle_ms) == 0) {
+            if (g_verbose && t % (500 / cycle_ms) == 0) {
                 for (int i = 0; i < motor_count; i++) {
                     printf("[M%d] PV模式 - 目标: %.3f, 反馈V: %.3f, P: %.3f\n", i, target_vel, states[i].vel,
                             states[i].pos);
