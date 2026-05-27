@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "motor.h"
+#include "test_config.h"
 
 /**
  * @brief Reachy Mini Motor Driver Example (XL330)
@@ -21,7 +22,6 @@
  * full range of movement.
  */
 
-#define MOTOR_COUNT 1
 #define BAUDRATE 1000000
 #define DEFAULT_PORT "/dev/ttyACM0"
 
@@ -37,23 +37,36 @@
 #endif
 
 int main(int argc, char *argv[]) {
-    const char *port = DEFAULT_PORT;
-    if (argc >= 3) {
-        port = argv[2];
-    } else if (argc >= 2) {
-        port = argv[1];
+    for (int j = 1; j < argc; j++) {
+        if (strcmp(argv[j], "-h") == 0 || strcmp(argv[j], "--help") == 0) {
+            printf("Usage: %s [options]\n", argv[0]);
+            printf("Options:\n");
+            printf("  --driver <name>    Set motor driver (default: drv_uart_xl330)\n");
+            printf("  --port <port>      Set UART port (default: /dev/ttyACM0)\n");
+            printf("  --baud <baudrate>  Set baudrate (default: 1000000)\n");
+            printf("  --id <id1,id2...>  Set motor IDs (default: 10)\n");
+            printf("  -h, --help         Show this help\n");
+            return 0;
+        }
     }
+    const char *driver = "drv_uart_xl330";
+    const char *port = DEFAULT_PORT;
+    int baudrate = BAUDRATE;
+    int ids[16] = {10};
+    int num_motors = 1;
 
-    struct motor_dev *devs[MOTOR_COUNT];
-    struct motor_cmd cmds[MOTOR_COUNT];
-    struct motor_state states[MOTOR_COUNT];
+    load_config_and_args(argc, argv, &driver, &port, &baudrate, ids, &num_motors, NULL);
 
-    printf("[Test] Initializing Reachy Mini motor (ID 10) on %s...\n", port);
+    struct motor_dev *devs[16] = {NULL};
+    struct motor_cmd cmds[16];
+    struct motor_state states[16];
 
-    /* 1. Allocate motor device (ID 10) */
-    for (int i = 0; i < MOTOR_COUNT; i++) {
-        uint8_t id = 10;  // Specific ID 10
-        devs[i] = motor_alloc_uart("drv_uart_xl330", port, BAUDRATE, id, NULL);
+    printf("[Test] Initializing Reachy Mini motor(s) on %s...\n", port);
+
+    /* 1. Allocate motor device (ID 10 by default) */
+    for (int i = 0; i < num_motors; i++) {
+        uint8_t id = (uint8_t)ids[i];
+        devs[i] = motor_alloc_uart(driver, port, baudrate, id, NULL);
         if (!devs[i]) {
             fprintf(stderr, "Error: Failed to allocate motor ID %d\n", id);
             // Cleanup previously allocated
@@ -63,17 +76,17 @@ int main(int argc, char *argv[]) {
     }
 
     /* 2. Initialize motors (set to active mode) */
-    if (motor_init(devs, MOTOR_COUNT) != 0) {
+    if (motor_init(devs, num_motors) != 0) {
         fprintf(stderr, "Error: Failed to initialize motors\n");
-        motor_free(devs, MOTOR_COUNT);
+        motor_free(devs, num_motors);
         return -1;
     }
 
     /* Verify initialization success by checking for early async errors (e.g. invalid port) */
     usleep(100000);
-    if (motor_get_states(devs, states, MOTOR_COUNT) == 0 && states[0].err != 0) {
+    if (motor_get_states(devs, states, num_motors) == 0 && states[0].err != 0) {
         fprintf(stderr, "Error: Motor reported fatal error 0x%X during initialization. Port may be invalid.\n", states[0].err);
-        motor_free(devs, MOTOR_COUNT);
+        motor_free(devs, num_motors);
         return -1;
     }
 
@@ -82,7 +95,7 @@ int main(int argc, char *argv[]) {
             DURATION_S);
 
     /* 3. Prepare common command fields */
-    for (int i = 0; i < MOTOR_COUNT; i++) {
+    for (int i = 0; i < num_motors; i++) {
         cmds[i].mode = MOTOR_MODE_POS;
         cmds[i].vel_des = 0.0f;
         cmds[i].trq_des = 0.0f;
@@ -108,15 +121,15 @@ int main(int argc, char *argv[]) {
         // Calculate target position (Sine wave)
         float target_pos = amp_rad * sinf((float)(2.0 * M_PI * FREQ_HZ * elapsed));
 
-        for (int i = 0; i < MOTOR_COUNT; i++) {
+        for (int i = 0; i < num_motors; i++) {
             cmds[i].pos_des = target_pos;
         }
 
         // Send commands to all motors
-        motor_set_cmds(devs, cmds, MOTOR_COUNT);
+        motor_set_cmds(devs, cmds, num_motors);
 
         // Read back states
-        if (motor_get_states(devs, states, MOTOR_COUNT) == 0) {
+        if (motor_get_states(devs, states, num_motors) == 0) {
             printf("\rTime: %5.2fs | Goal: %6.3f rad | Pos: %6.3f", elapsed, target_pos,
                     states[0].pos);
             if (states[0].err != 0) {
@@ -136,13 +149,13 @@ int main(int argc, char *argv[]) {
     printf("\n[Test] Demo finished. Moving back to zero position...\n");
 
     /* 5. Return to zero and cleanup */
-    for (int i = 0; i < MOTOR_COUNT; i++) {
+    for (int i = 0; i < num_motors; i++) {
         cmds[i].pos_des = 0.0f;
     }
-    motor_set_cmds(devs, cmds, MOTOR_COUNT);
+    motor_set_cmds(devs, cmds, num_motors);
     sleep(1);
 
-    motor_free(devs, MOTOR_COUNT);
+    motor_free(devs, num_motors);
     printf("[Test] All devices released.\n");
 
     return 0;

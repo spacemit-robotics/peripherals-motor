@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "../include/motor.h"
+#include "test_config.h"
 
 #define MAX_ECAT_MOTORS 10
 
@@ -98,14 +99,46 @@ int main(int argc, char** argv) {
         }
     }
 
+    const char *driver = "drv_ecat_jmc";
+    int cfg_nums = -1;
+    load_config_and_args(argc, argv, &driver, NULL, NULL, NULL, NULL, &cfg_nums);
+
+    // Command line `-m` overrides config, if not set, config overrides default
+    // We already parsed `-m` into motor_count. If the user used `-m`, how do we know?
+    // Let's re-check argv manually or just trust load_config_and_args.
+    // Actually, load_config_and_args checks `--nums`. We can use cfg_nums if set.
+    // But getopt also sets motor_count. To ensure `--nums` or config `nums` works if `-m` isn't used:
+    // A simple way: check if config provided nums, and if so, use it as default before checking argv again.
+    // Let's just do it sequentially.
+
+    struct test_config cfg;
+    if (parse_yaml_config("../config/config_parameters.yaml", driver, &cfg) == 0 ||
+        parse_yaml_config("../../config/config_parameters.yaml", driver, &cfg) == 0 ||
+        parse_yaml_config("components/peripherals/motor/config/config_parameters.yaml", driver, &cfg) == 0) {
+        if (cfg.nums != -1) {
+            motor_count = cfg.nums;
+        }
+    }
+
+    // Re-parse argv for -m / --motors / --nums to have highest priority
+    optind = 1;
+    while ((opt = getopt_long(argc, argv, "m:c:vqh", long_opts, NULL)) != -1) {
+        if (opt == 'm') motor_count = atoi(optarg);
+    }
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--nums") == 0 && i + 1 < argc) {
+            motor_count = atoi(argv[i + 1]);
+        }
+    }
+
     if (motor_count <= 0 || motor_count > MAX_ECAT_MOTORS) {
         fprintf(stderr, "错误: 电机数量 %d 非法 (范围 1..%d)\n", motor_count, MAX_ECAT_MOTORS);
         return -1;
     }
 
     printf("========================================\n");
-    printf("JMC IHSS42-EC EtherCAT 框架测试程序 (PP 模式示例)\n");
-    printf("驱动=drv_ethercat_jmc, 周期=%u ms, 电机数=%d\n", cycle_ms, motor_count);
+    printf("EtherCAT 框架测试程序 (PP 模式示例)\n");
+    printf("驱动=%s, 周期=%u ms, 电机数=%d\n", driver, cycle_ms, motor_count);
     printf("========================================\n");
 
     signal(SIGINT, signal_handler);
@@ -120,7 +153,7 @@ int main(int argc, char** argv) {
 
     // allocate motors
     for (int i = 0; i < motor_count; i++) {
-        devs[i] = motor_alloc_ecat("drv_ethercat_jmc", i, &ecat_cfg);
+        devs[i] = motor_alloc_ecat(driver, i, &ecat_cfg);
         if (!devs[i]) {
             fprintf(stderr, "分配电机 %d 失败\n", i);
             return -1;

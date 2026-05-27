@@ -1,0 +1,23 @@
+# 注意：所有参数需严格匹配电机驱动名称
+
+modules: motor
+
+- name: drv_uart_xl330
+    id: 10
+    port: /dev/ttyACM0
+    baudrate: 1000000
+
+- name: drv_uart_feetech
+    id: [2, 3]
+    port: /dev/ttyACM1
+    baudrate: 1000000
+    
+# 不支持 id 指定，jmc 电机会根据端口序自动分配
+- name: drv_ecat_jmc
+    id: -1  
+    nums: 1
+
+- name: drv_can_dm
+    id: [2, 3]
+    can: can0
+    baudrate: 1000000
