@@ -87,8 +87,12 @@ struct motor_dev *motor_alloc_ecat(const char *name, uint16_t slave_idx,
 
 int motor_init(struct motor_dev **devs, uint32_t count) {
     for (uint32_t i = 0; i < count; i++) {
-    if (devs[i] && devs[i]->ops && devs[i]->ops->init)
-        devs[i]->ops->init(devs[i]);
+        if (devs[i] && devs[i]->ops && devs[i]->ops->init) {
+            int ret = devs[i]->ops->init(devs[i]);
+            if (ret < 0) {
+                return ret;
+            }
+        }
     }
     return 0;
 }
