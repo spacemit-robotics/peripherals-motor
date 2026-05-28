@@ -28,8 +28,10 @@ static void print_usage(const char *prog_name) {
     printf("  --driver <name>    Set motor driver (default: drv_uart_feetech)\n");
     printf("  --port <port>      Set UART port (default: /dev/ttyACM1)\n");
     printf("  --baud <baudrate>  Set baudrate (default: 1000000)\n");
-    printf("  --id <id1,id2...>  Set motor IDs (default: 2,3)\n");
+    printf("  --id <id1,id2...>  Set motor IDs (default: fallback to config, then 2,3)\n");
     printf("  -h, --help         Show this help\n");
+    printf("\nNote: Parameters will be prioritized from config/config_parameters.yaml.\n");
+    printf("      Command-line arguments override YAML configurations.\n");
 }
 
 int main(int argc, char *argv[]) {

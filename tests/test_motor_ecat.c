@@ -67,6 +67,7 @@ int main(int argc, char** argv) {
     int app_mode = MOTOR_MODE_POS;
 
     static struct option long_opts[] = {{"motors", required_argument, 0, 'm'},
+                                        {"nums", required_argument, 0, 'n'},
                                         {"cycle", required_argument, 0, 'c'},
                                         {"verbose", no_argument, 0, 'v'},
                                         {"quiet", no_argument, 0, 'q'},
@@ -74,9 +75,10 @@ int main(int argc, char** argv) {
                                         {0, 0, 0, 0}};
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:c:vqh", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:n:c:vqh", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'm':
+            case 'n':
                 motor_count = atoi(optarg);
                 break;
             case 'c':
@@ -99,36 +101,24 @@ int main(int argc, char** argv) {
         }
     }
 
-    const char *driver = "drv_ecat_jmc";
+    const char *driver = "drv_ethercat_jmc";
     int cfg_nums = -1;
     load_config_and_args(argc, argv, &driver, NULL, NULL, NULL, NULL, &cfg_nums);
 
-    // Command line `-m` overrides config, if not set, config overrides default
-    // We already parsed `-m` into motor_count. If the user used `-m`, how do we know?
-    // Let's re-check argv manually or just trust load_config_and_args.
-    // Actually, load_config_and_args checks `--nums`. We can use cfg_nums if set.
-    // But getopt also sets motor_count. To ensure `--nums` or config `nums` works if `-m` isn't used:
-    // A simple way: check if config provided nums, and if so, use it as default before checking argv again.
-    // Let's just do it sequentially.
-
-    struct test_config cfg;
-    if (parse_yaml_config("../config/config_parameters.yaml", driver, &cfg) == 0 ||
-        parse_yaml_config("../../config/config_parameters.yaml", driver, &cfg) == 0 ||
-        parse_yaml_config("components/peripherals/motor/config/config_parameters.yaml", driver, &cfg) == 0) {
-        if (cfg.nums != -1) {
-            motor_count = cfg.nums;
-        }
+    // 将 YAML 中读取到的电机数应用为默认值
+    if (cfg_nums != -1) {
+        motor_count = cfg_nums;
     }
 
-    // Re-parse argv for -m / --motors / --nums to have highest priority
+    // 重新解析 argv，确保命令行显式指定的参数具有最高优先级
     optind = 1;
-    while ((opt = getopt_long(argc, argv, "m:c:vqh", long_opts, NULL)) != -1) {
-        if (opt == 'm') motor_count = atoi(optarg);
+    while ((opt = getopt_long(argc, argv, "m:n:c:vqh", long_opts, NULL)) != -1) {
+        if (opt == 'm' || opt == 'n') motor_count = atoi(optarg);
     }
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--nums") == 0 && i + 1 < argc) {
-            motor_count = atoi(argv[i + 1]);
-        }
+
+    if (cycle_ms > 500) {
+        fprintf(stderr, "警告: 周期参数 %u ms 过大 (最大支持 500ms)，已自动截断为 500 ms 以防止除零崩溃\n", cycle_ms);
+        cycle_ms = 500;
     }
 
     if (motor_count <= 0 || motor_count > MAX_ECAT_MOTORS) {
@@ -182,7 +172,11 @@ int main(int argc, char** argv) {
     uint32_t max_accelate_w = 50000;
     // 写目标的索引+子索引+数据长度
     address_info_t address_info_w = {0x60C5, 00, 4};
-    motor_set_paras(devs[0], &address_info_w, &max_accelate_w, sizeof(max_accelate_w));
+    if (motor_set_paras(devs[0], &address_info_w, &max_accelate_w, sizeof(max_accelate_w)) < 0) {
+        fprintf(stderr, "错误: 无法设置参数，可能是无法请求 EtherCAT 主站或通信失败，自动退出。\n");
+        motor_free(devs, motor_count);
+        return -1;
+    }
     if (g_verbose) printf("written max_accelate: %d\n", max_accelate_w);
 
     // 读参数
@@ -190,7 +184,11 @@ int main(int argc, char** argv) {
     if (g_verbose) printf("开始读参数测试...\n\n");
     uint32_t max_accelate_r;
     address_info_t address_info_r = {0x60C5, 00, 4};
-    motor_get_paras(devs[0],  &address_info_r, &max_accelate_r, sizeof(max_accelate_r));
+    if (motor_get_paras(devs[0],  &address_info_r, &max_accelate_r, sizeof(max_accelate_r)) < 0) {
+        fprintf(stderr, "错误: 无法读取参数，通信异常，自动退出。\n");
+        motor_free(devs, motor_count);
+        return -1;
+    }
     if (g_verbose) printf("最大加速度: %d\n", max_accelate_r);
 
 
@@ -343,6 +341,11 @@ int main(int argc, char** argv) {
                 printf("等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
                         (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
+            if (loop_count > (5000 / cycle_ms)) {
+                fprintf(stderr, "错误: PP 模式等待电机使能超时！自动退出。\n");
+                motor_free(devs, motor_count);
+                return -1;
+            }
         }
 
         sleep_ms(cycle_ms);
@@ -402,6 +405,7 @@ int main(int argc, char** argv) {
 
     // 第一步：等待使能并确保同步稳定
     int pv_stable_counts = 0;
+    uint32_t pv_loop_count = 0;
     while (g_running) {
         motor_get_states(devs, states, motor_count);
         int all_enabled = 1;
@@ -423,9 +427,15 @@ int main(int argc, char** argv) {
                 printf("PV 等待使能中... (M0 SW=%04X, M1 SW=%04X)\n", (uint16_t)states[0].err,
                         (motor_count > 1 ? (uint16_t)states[1].err : 0));
             }
+            if (pv_loop_count > (5000 / cycle_ms)) {
+                fprintf(stderr, "错误: PV 模式等待电机使能超时！自动退出。\n");
+                motor_free(devs, motor_count);
+                return -1;
+            }
         }
         sleep_ms(cycle_ms);
         loop_count++;
+        pv_loop_count++;
     }
 
     printf("PV 模式已就绪，开始速度阶跃测试.\n");

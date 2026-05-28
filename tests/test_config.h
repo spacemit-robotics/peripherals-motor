@@ -161,8 +161,10 @@ static inline void load_config_and_args(int argc, char **argv,
         } else if (strcmp(argv[i], "--id") == 0 && i + 1 < argc) {
             if (ids && num_ids) {
                 *num_ids = 0;
-                char *p = argv[++i];
-                char *token = strtok(p, ",");
+                char buf[256];
+                strncpy(buf, argv[++i], sizeof(buf) - 1);
+                buf[sizeof(buf) - 1] = '\0';
+                char *token = strtok(buf, ",");
                 while (token && *num_ids < 16) {
                     ids[(*num_ids)++] = atoi(token);
                     token = strtok(NULL, ",");

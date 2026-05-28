@@ -313,9 +313,9 @@ if(LIBGPIOD_FOUND)
     check_c_source_compiles("
         #include <gpiod.h>
         int main(void) {
-            /* gpiod_chip_open is the v2 API entry point (replaces gpiod_chip_open_by_name) */
-            struct gpiod_chip *chip = gpiod_chip_open(\"/dev/gpiochip0\");
-            (void)chip;
+            /* enum gpiod_line_value is v2-only; v1 uses int directly */
+            enum gpiod_line_value val = GPIOD_LINE_VALUE_ACTIVE;
+            (void)val;
             return 0;
         }
     " LIBGPIOD_HAS_V2_API)
@@ -368,7 +368,8 @@ if(BUILD_UART_XL330_DRIVER)
     add_dependencies(motor uart_xl330_cargo_build)
     # Mark the Rust .a as generated so CMake doesn't complain about missing file at configure time
     set_source_files_properties("${RUST_LIB_PATH}" PROPERTIES GENERATED TRUE)
-    target_link_libraries(motor PUBLIC $<BUILD_INTERFACE:${RUST_LIB_PATH}> $<INSTALL_INTERFACE:reachy_mini_motor_controller>)
+    # Consumers will link the installed Rust lib via the MOTOR_RUST_LIB variable provided by motorConfig.cmake
+    target_link_libraries(motor PUBLIC $<BUILD_INTERFACE:${RUST_LIB_PATH}>)
     # Rust staticlib might need dl and m
     target_link_libraries(motor PUBLIC dl m)
 endif()
@@ -426,17 +427,33 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in" [=[
 #
 # Provides:
 #   components::motor           — imported static library
+#   motor::motor                — alias for backward compatibility
 #   MOTOR_WHOLE_ARCHIVE    — TRUE (consumers must use --whole-archive for driver registration)
 #   MOTOR_RUST_LIB         — path to Rust companion lib (empty if not built)
 #
 # Usage:
 #   find_package(motor REQUIRED)
 #   target_link_libraries(my_app
-#       -Wl,--whole-archive components::motor -Wl,--no-whole-archive
+#       -Wl,--whole-archive motor::motor -Wl,--no-whole-archive
 #       ${MOTOR_RUST_LIB}   # if non-empty
 #   )
 
 include("${CMAKE_CURRENT_LIST_DIR}/motorTargets.cmake")
+
+# Ensure the imported target automatically links the Rust companion library
+if(NOT "@_MOTOR_EXTRA_LINK_LIBS@" STREQUAL "")
+    set_property(TARGET components::motor APPEND PROPERTY INTERFACE_LINK_LIBRARIES "@_MOTOR_EXTRA_LINK_LIBS@")
+endif()
+
+# Backward compatibility alias
+if(NOT TARGET motor::motor AND TARGET components::motor)
+    if(CMAKE_VERSION VERSION_LESS 3.18)
+        add_library(motor::motor INTERFACE IMPORTED)
+        set_target_properties(motor::motor PROPERTIES INTERFACE_LINK_LIBRARIES components::motor)
+    else()
+        add_library(motor::motor ALIAS components::motor)
+    endif()
+endif()
 
 set(MOTOR_WHOLE_ARCHIVE TRUE)
 set(MOTOR_RUST_LIB "@_MOTOR_EXTRA_LINK_LIBS@")

@@ -20,6 +20,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <net/if.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
 
 #include "motor.h"
 #include "test_config.h"
@@ -68,8 +70,10 @@ static void print_usage(const char *prog_name) {
     printf("Options:\n");
     printf("  --driver <name>    Set motor driver (default: drv_can_dm)\n");
     printf("  --if <iface>       Set CAN interface (default: can0)\n");
-    printf("  --id <id1,id2...>  Set motor IDs (default: 2,3)\n");
+    printf("  --id <id1,id2...>  Set motor IDs (default: fallback to config, then 2,3)\n");
     printf("  -h, --help         Show this help\n");
+    printf("\nNote: Parameters will be prioritized from config/config_parameters.yaml.\n");
+    printf("      Command-line arguments override YAML configurations.\n");
 }
 
 int main(int argc, char** argv) {
@@ -92,10 +96,25 @@ int main(int argc, char** argv) {
 
     load_config_and_args(argc, argv, &driver, &iface, &baudrate, ids, &num_motors, NULL);
 
-    // ========== 检查接口存活 ==========
+    // ========== 检查接口存活与开启状态 ==========
     if (if_nametoindex(iface) == 0) {
         printf("Error: Interface %s does not exist.\n", iface);
         return -1;
+    }
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock >= 0) {
+        struct ifreq ifr;
+        strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
+        ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+        if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
+            if (!(ifr.ifr_flags & IFF_UP)) {
+                printf("Error: Interface %s is DOWN (not open).\n", iface);
+                close(sock);
+                return -1;
+            }
+        }
+        close(sock);
     }
 
     // ========== 分配设备 ==========
