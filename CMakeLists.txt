@@ -303,11 +303,32 @@ if(NOT LIBGPIOD_FOUND)
     message(WARNING "libgpiod not found. Please install it: sudo apt-get install libgpiod-dev")
 endif()
 
-# 获取版本号并传递给编译器
-if(LIBGPIOD_VERSION VERSION_LESS "2.0.0")
-    add_definitions(-DLIBGPIOD_V1)
-else()
-    add_definitions(-DLIBGPIOD_V2)
+# Detect libgpiod API version via compile check.
+# Some sysroots report version 2.x but ship v1 headers, so we probe the actual
+# API availability rather than trusting the version string alone.
+include(CheckCSourceCompiles)
+if(LIBGPIOD_FOUND)
+    set(CMAKE_REQUIRED_INCLUDES ${LIBGPIOD_INCLUDE_DIRS})
+    set(CMAKE_REQUIRED_LIBRARIES ${LIBGPIOD_LIBRARIES})
+    check_c_source_compiles("
+        #include <gpiod.h>
+        int main(void) {
+            /* gpiod_chip_open is the v2 API entry point (replaces gpiod_chip_open_by_name) */
+            struct gpiod_chip *chip = gpiod_chip_open(\"/dev/gpiochip0\");
+            (void)chip;
+            return 0;
+        }
+    " LIBGPIOD_HAS_V2_API)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+
+    if(LIBGPIOD_HAS_V2_API)
+        add_definitions(-DLIBGPIOD_V2)
+        message(STATUS "libgpiod: using v2 API (version ${LIBGPIOD_VERSION})")
+    else()
+        add_definitions(-DLIBGPIOD_V1)
+        message(STATUS "libgpiod: using v1 API (version ${LIBGPIOD_VERSION})")
+    endif()
 endif()
 
 # Link pthread for Feetech driver (if using threads)

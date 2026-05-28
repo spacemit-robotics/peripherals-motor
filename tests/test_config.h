@@ -72,6 +72,52 @@ static inline int parse_yaml_config(const char *filename, const char *driver, st
     return 0;
 }
 
+#include <unistd.h>
+#include <limits.h>
+
+static inline int parse_yaml_config_search(const char *driver, struct test_config *cfg) {
+    char path[PATH_MAX + 128];
+    char temp_dir[PATH_MAX];
+
+    // 1. Search upwards from Current Working Directory (CWD)
+    if (getcwd(temp_dir, sizeof(temp_dir))) {
+        while (1) {
+            snprintf(path, sizeof(path), "%s/components/peripherals/motor/config/config_parameters.yaml", temp_dir);
+            if (parse_yaml_config(path, driver, cfg) == 0) return 0;
+
+            // Also check immediate config folder just in case
+            snprintf(path, sizeof(path), "%s/config/config_parameters.yaml", temp_dir);
+            if (parse_yaml_config(path, driver, cfg) == 0) return 0;
+
+            char *last_slash = strrchr(temp_dir, '/');
+            if (!last_slash || last_slash == temp_dir) break;
+            *last_slash = '\0';
+        }
+    }
+
+    // 2. Search upwards from Executable Directory (handles running via absolute path from outside SDK)
+    char exe_path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len > 0) {
+        exe_path[len] = '\0';
+        char *last_slash = strrchr(exe_path, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            strncpy(temp_dir, exe_path, sizeof(temp_dir));
+            while (1) {
+                snprintf(path, sizeof(path), "%s/components/peripherals/motor/config/config_parameters.yaml", temp_dir);
+                if (parse_yaml_config(path, driver, cfg) == 0) return 0;
+
+                last_slash = strrchr(temp_dir, '/');
+                if (!last_slash || last_slash == temp_dir) break;
+                *last_slash = '\0';
+            }
+        }
+    }
+
+    return -1;
+}
+
 static inline void load_config_and_args(int argc, char **argv,
                                         const char **driver,
                                         const char **iface_or_port,
@@ -85,9 +131,7 @@ static inline void load_config_and_args(int argc, char **argv,
     }
 
     struct test_config cfg;
-    if (parse_yaml_config("../config/config_parameters.yaml", *driver, &cfg) == 0 ||
-        parse_yaml_config("../../config/config_parameters.yaml", *driver, &cfg) == 0 ||
-        parse_yaml_config("components/peripherals/motor/config/config_parameters.yaml", *driver, &cfg) == 0) {
+    if (parse_yaml_config_search(*driver, &cfg) == 0) {
         if (iface_or_port && cfg.port_or_can[0] != '\0') {
             *iface_or_port = strdup(cfg.port_or_can);
         }
