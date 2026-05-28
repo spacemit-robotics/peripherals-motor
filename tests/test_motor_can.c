@@ -20,6 +20,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <net/if.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
 
 #include "motor.h"
 #include "test_config.h"
@@ -92,10 +94,25 @@ int main(int argc, char** argv) {
 
     load_config_and_args(argc, argv, &driver, &iface, &baudrate, ids, &num_motors, NULL);
 
-    // ========== 检查接口存活 ==========
+    // ========== 检查接口存活与开启状态 ==========
     if (if_nametoindex(iface) == 0) {
         printf("Error: Interface %s does not exist.\n", iface);
         return -1;
+    }
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock >= 0) {
+        struct ifreq ifr;
+        strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
+        ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+        if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
+            if (!(ifr.ifr_flags & IFF_UP)) {
+                printf("Error: Interface %s is DOWN (not open).\n", iface);
+                close(sock);
+                return -1;
+            }
+        }
+        close(sock);
     }
 
     // ========== 分配设备 ==========
