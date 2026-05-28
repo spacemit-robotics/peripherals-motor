@@ -440,9 +440,14 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in" [=[
 
 include("${CMAKE_CURRENT_LIST_DIR}/motorTargets.cmake")
 
+# Ensure the imported target automatically links the Rust companion library
+if(NOT "@_MOTOR_EXTRA_LINK_LIBS@" STREQUAL "")
+    set_property(TARGET components::motor APPEND PROPERTY INTERFACE_LINK_LIBRARIES "@_MOTOR_EXTRA_LINK_LIBS@")
+endif()
+
 # Backward compatibility alias
 if(NOT TARGET motor::motor AND TARGET components::motor)
-    if(CMAKE_VERSION VERSION_LESS 3.11)
+    if(CMAKE_VERSION VERSION_LESS 3.18)
         add_library(motor::motor INTERFACE IMPORTED)
         set_target_properties(motor::motor PROPERTIES INTERFACE_LINK_LIBRARIES components::motor)
     else()

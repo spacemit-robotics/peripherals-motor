@@ -1,0 +1,20 @@
+module: components/peripherals/motor
+
+tests:
+  - name: motor-functional
+    description: Verifies motor API behavior for valid and invalid inputs.
+    category: functional
+    scopes: [pr]
+    timeout_s: 120
+    workdir: sdk
+    command: |
+      bash components/peripherals/motor/tests/test_functional.sh
+
+  - name: motor-manual
+    description: Manual verification confirms that the motors can be controlled.
+    category: functional
+    scopes: [manual]
+    timeout_s: 120
+    workdir: sdk
+    command: |
+      bash components/peripherals/motor/tests/test_manual.sh
