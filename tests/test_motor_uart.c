@@ -20,47 +20,49 @@
 #include <unistd.h>
 
 #include "motor.h"
+#include "test_config.h"
+
+static void print_usage(const char *prog_name) {
+    printf("Usage: %s [options]\n", prog_name);
+    printf("Options:\n");
+    printf("  --driver <name>    Set motor driver (default: drv_uart_feetech)\n");
+    printf("  --port <port>      Set UART port (default: /dev/ttyACM1)\n");
+    printf("  --baud <baudrate>  Set baudrate (default: 1000000)\n");
+    printf("  --id <id1,id2...>  Set motor IDs (default: fallback to config, then 2,3)\n");
+    printf("  -h, --help         Show this help\n");
+    printf("\nNote: Parameters will be prioritized from config/config_parameters.yaml.\n");
+    printf("      Command-line arguments override YAML configurations.\n");
+}
 
 int main(int argc, char *argv[]) {
-    struct motor_dev *motors[8] = {NULL};
-    struct motor_cmd cmds[8];
-    struct motor_state states[8];
-    uint32_t num_motors = 2;
+    for (int j = 1; j < argc; j++) {
+        if (strcmp(argv[j], "-h") == 0 || strcmp(argv[j], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        }
+    }
+    struct motor_dev *motors[16] = {NULL};
+    struct motor_cmd cmds[16];
+    struct motor_state states[16];
+    int num_motors = 2;
     uint32_t i;
     int ret = 0;
 
     const char *dev_path = "/dev/ttyACM1";
-    uint32_t baud = 1000000;
+    int baud = 1000000;
     const char *driver = "drv_uart_feetech";
+    int ids[16] = {2, 3};
 
-    /* 解析命令行: [dev_path] [baud] [driver] [num_motors] */
-    if (argc >= 2)
-    dev_path = argv[1];
-    if (argc >= 3) {
-    baud = atoi(argv[2]);
-    if (baud == 0) {
-        fprintf(stderr, "Invalid baud rate: %s\n", argv[2]);
-        return 1;
-    }
-    }
-    if (argc >= 4)
-    driver = argv[3];
-    if (argc >= 5) {
-    num_motors = atoi(argv[4]);
-    if (num_motors == 0 || num_motors > 8) {
-        fprintf(stderr, "Invalid num_motors: %s (1-8)\n", argv[4]);
-        return 1;
-    }
-    }
+    load_config_and_args(argc, argv, &driver, &dev_path, &baud, ids, &num_motors, NULL);
 
     printf("=== UART Motor Test ===\n");
-    printf("  dev_path=%s, baud=%u, driver=%s, num_motors=%u\n\n", dev_path, baud,
+    printf("  dev_path=%s, baud=%d, driver=%s, num_motors=%d\n\n", dev_path, baud,
             driver, num_motors);
 
     /* 1. 创建电机实例（级联在同一总线上，通过 id 区分） */
     for (i = 0; i < num_motors; i++) {
-    uint8_t motor_id = (uint8_t)(i + 1);
-    motors[i] = motor_alloc_uart(driver, dev_path, baud, motor_id, NULL);
+    uint8_t motor_id = (uint8_t)ids[i];
+    motors[i] = motor_alloc_uart(driver, dev_path, (uint32_t)baud, motor_id, NULL);
     if (!motors[i]) {
         fprintf(stderr, "ERROR: Failed to create motor %u on %s\n", i + 1,
                 dev_path);

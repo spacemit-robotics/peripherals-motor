@@ -217,7 +217,7 @@ typedef struct {
 
 //   线程函数包装器
 void* motor_thread_wrapper(void* arg) {
-    MotorParams* params = arg;
+    MotorParams* params = (MotorParams*)arg;
 
     //   调用实际的电机控制函数
     run_one_motor_test(params->motor_index,
@@ -329,8 +329,16 @@ static int test_pwm_gpio()
     return 0;
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Usage: %s [options]\n", argv[0]);
+            printf("Description: PWM motor test (hardcoded tests for pwm_demo driver)\n");
+            printf("  -h, --help         Show this help\n");
+            return 0;
+        }
+    }
     int ret = 0;
 
     // ret = test_pwm_generic();

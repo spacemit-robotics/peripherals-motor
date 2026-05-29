@@ -17,13 +17,18 @@
 #include <math.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <net/if.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
 
 #include "motor.h"
+#include "test_config.h"
 
 #define LOOP_PERIOD_US 10000   // 10ms
 #define PHASE_STEPS 200        // 每个模式运行 200 步 (2s)
 #define SETTLE_TIME_US 500000  // 模式切换前预留 500ms 稳定时间
-#define NUM_MOTORS 2
 
 static void print_states(const char* phase, int step, struct motor_state* states, int count) {
     if (step % 50 == 0) {
@@ -60,17 +65,62 @@ static void settle_before_switch(struct motor_dev** devs, int count, const char*
     printf("  [settle] Ready\n");
 }
 
+static void print_usage(const char *prog_name) {
+    printf("Usage: %s [options]\n", prog_name);
+    printf("Options:\n");
+    printf("  --driver <name>    Set motor driver (default: drv_can_dm)\n");
+    printf("  --if <iface>       Set CAN interface (default: can0)\n");
+    printf("  --id <id1,id2...>  Set motor IDs (default: fallback to config, then 2,3)\n");
+    printf("  -h, --help         Show this help\n");
+    printf("\nNote: Parameters will be prioritized from config/config_parameters.yaml.\n");
+    printf("      Command-line arguments override YAML configurations.\n");
+}
+
 int main(int argc, char** argv) {
-    struct motor_dev* devs[NUM_MOTORS];
-    struct motor_state states[NUM_MOTORS];
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        }
+    }
+
+    struct motor_dev* devs[16];
+    struct motor_state states[16];
     struct motor_cmd cmd = {};
+
+    const char *driver = "drv_can_dm";
+    const char *iface = "can0";
+    int baudrate = 1000000;
+    int ids[16] = {2, 3};
+    int num_motors = 2;
+
+    load_config_and_args(argc, argv, &driver, &iface, &baudrate, ids, &num_motors, NULL);
+
+    // ========== 检查接口存活与开启状态 ==========
+    if (if_nametoindex(iface) == 0) {
+        printf("Error: Interface %s does not exist.\n", iface);
+        return -1;
+    }
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock >= 0) {
+        struct ifreq ifr;
+        strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
+        ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+        if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
+            if (!(ifr.ifr_flags & IFF_UP)) {
+                printf("Error: Interface %s is DOWN (not open).\n", iface);
+                close(sock);
+                return -1;
+            }
+        }
+        close(sock);
+    }
 
     // ========== 分配设备 ==========
     printf("=== Allocating motor devices ===\n");
-    devs[0] = motor_alloc_can("drv_can_dm", "can0", 0x02, NULL);
-    devs[1] = motor_alloc_can("drv_can_dm", "can0", 0x03, NULL);
-
-    for (int j = 0; j < NUM_MOTORS; j++) {
+    for (int j = 0; j < num_motors; j++) {
+        devs[j] = motor_alloc_can(driver, iface, (uint8_t)ids[j], NULL);
         if (!devs[j]) {
             printf("Error: Failed to allocate motor %d\n", j);
             return -1;
@@ -79,7 +129,7 @@ int main(int argc, char** argv) {
 
     // ========== 初始化 ==========
     printf("=== Initializing ===\n");
-    if (motor_init(devs, NUM_MOTORS) < 0) {
+    if (motor_init(devs, num_motors) < 0) {
         printf("Error: Init failed\n");
         return -1;
     }
@@ -100,15 +150,16 @@ int main(int argc, char** argv) {
         cmd.kd = 1.5f;
 
         // 两个电机发送相同指令，同步运动
-        struct motor_cmd cmds[NUM_MOTORS] = {cmd, cmd};
-        motor_set_cmds(devs, cmds, NUM_MOTORS);
-        motor_get_states(devs, states, NUM_MOTORS);
-        print_states("MIT", i, states, NUM_MOTORS);
+        struct motor_cmd cmds[16];
+        for (int j = 0; j < num_motors; j++) cmds[j] = cmd;
+        motor_set_cmds(devs, cmds, num_motors);
+        motor_get_states(devs, states, num_motors);
+        print_states("MIT", i, states, num_motors);
         usleep(LOOP_PERIOD_US);
     }
 
     // ========== Phase 2: 位置+速度控制 ==========
-    settle_before_switch(devs, NUM_MOTORS, "MOTOR_MODE_POS");
+    settle_before_switch(devs, num_motors, "MOTOR_MODE_POS");
     printf("--- Phase 2: MOTOR_MODE_POS (POS_VEL) ---\n");
     for (int i = 0; i < PHASE_STEPS; i++) {
         cmd.mode = MOTOR_MODE_POS;
@@ -118,15 +169,16 @@ int main(int argc, char** argv) {
         cmd.kp = 0.0f;
         cmd.kd = 0.0f;
 
-        struct motor_cmd cmds[NUM_MOTORS] = {cmd, cmd};
-        motor_set_cmds(devs, cmds, NUM_MOTORS);
-        motor_get_states(devs, states, NUM_MOTORS);
-        print_states("POS", i, states, NUM_MOTORS);
+        struct motor_cmd cmds[16];
+        for (int j = 0; j < num_motors; j++) cmds[j] = cmd;
+        motor_set_cmds(devs, cmds, num_motors);
+        motor_get_states(devs, states, num_motors);
+        print_states("POS", i, states, num_motors);
         usleep(LOOP_PERIOD_US);
     }
 
     // ========== Phase 3: 纯速度控制 ==========
-    settle_before_switch(devs, NUM_MOTORS, "MOTOR_MODE_VEL");
+    settle_before_switch(devs, num_motors, "MOTOR_MODE_VEL");
     printf("--- Phase 3: MOTOR_MODE_VEL ---\n");
     for (int i = 0; i < PHASE_STEPS; i++) {
         cmd.mode = MOTOR_MODE_VEL;
@@ -136,15 +188,16 @@ int main(int argc, char** argv) {
         cmd.kp = 0.0f;
         cmd.kd = 0.0f;
 
-        struct motor_cmd cmds[NUM_MOTORS] = {cmd, cmd};
-        motor_set_cmds(devs, cmds, NUM_MOTORS);
-        motor_get_states(devs, states, NUM_MOTORS);
-        print_states("VEL", i, states, NUM_MOTORS);
+        struct motor_cmd cmds[16];
+        for (int j = 0; j < num_motors; j++) cmds[j] = cmd;
+        motor_set_cmds(devs, cmds, num_motors);
+        motor_get_states(devs, states, num_motors);
+        print_states("VEL", i, states, num_motors);
         usleep(LOOP_PERIOD_US);
     }
 
     // ========== Phase 4: 力位混控 ==========
-    settle_before_switch(devs, NUM_MOTORS, "MOTOR_MODE_TRQ");
+    settle_before_switch(devs, num_motors, "MOTOR_MODE_TRQ");
     printf("--- Phase 4: MOTOR_MODE_TRQ (POS_FORCE) ---\n");
     for (int i = 0; i < PHASE_STEPS; i++) {
         cmd.mode = MOTOR_MODE_TRQ;
@@ -154,16 +207,17 @@ int main(int argc, char** argv) {
         cmd.kp = 0.0f;
         cmd.kd = 0.0f;
 
-        struct motor_cmd cmds[NUM_MOTORS] = {cmd, cmd};
-        motor_set_cmds(devs, cmds, NUM_MOTORS);
-        motor_get_states(devs, states, NUM_MOTORS);
-        print_states("TRQ", i, states, NUM_MOTORS);
+        struct motor_cmd cmds[16];
+        for (int j = 0; j < num_motors; j++) cmds[j] = cmd;
+        motor_set_cmds(devs, cmds, num_motors);
+        motor_get_states(devs, states, num_motors);
+        print_states("TRQ", i, states, num_motors);
         usleep(LOOP_PERIOD_US);
     }
 
     // ========== Phase 5: 参数读写测试（对两个电机） ==========
     printf("\n--- Phase 5: Parameter Read/Write ---\n");
-    for (int j = 0; j < NUM_MOTORS; j++) {
+    for (int j = 0; j < num_motors; j++) {
         float val = 0.0f;
         uint8_t reg_max_spd = 6;
 
@@ -186,14 +240,15 @@ int main(int argc, char** argv) {
     cmd.kp = 0.0f;
     cmd.kd = 0.0f;
     {
-        struct motor_cmd cmds[NUM_MOTORS] = {cmd, cmd};
-        motor_set_cmds(devs, cmds, NUM_MOTORS);
+        struct motor_cmd cmds[16];
+        for (int j = 0; j < num_motors; j++) cmds[j] = cmd;
+        motor_set_cmds(devs, cmds, num_motors);
     }
     printf("All motors disabled\n");
 
     // ========== 释放 ==========
     printf("\n=== Releasing motors ===\n");
-    motor_free(devs, NUM_MOTORS);
+    motor_free(devs, num_motors);
 
     printf("=== Test complete ===\n");
     return 0;

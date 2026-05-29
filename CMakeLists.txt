@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 project(motor LANGUAGES C CXX)
-include(CheckCSourceCompiles)
 
 # Semicolon-separated list of enabled drivers; when set, only requested drivers are built.
 # Example: -DSROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS=drv_can_generic;drv_pwm_generic
@@ -304,27 +303,32 @@ if(NOT LIBGPIOD_FOUND)
     message(WARNING "libgpiod not found. Please install it: sudo apt-get install libgpiod-dev")
 endif()
 
-# Detect the usable libgpiod API from headers. Some target sysroots report a
-# 2.x pkg-config version while exposing the v1-compatible header API.
+# Detect libgpiod API version via compile check.
+# Some sysroots report version 2.x but ship v1 headers, so we probe the actual
+# API availability rather than trusting the version string alone.
+include(CheckCSourceCompiles)
 if(LIBGPIOD_FOUND)
     set(CMAKE_REQUIRED_INCLUDES ${LIBGPIOD_INCLUDE_DIRS})
     set(CMAKE_REQUIRED_LIBRARIES ${LIBGPIOD_LIBRARIES})
     check_c_source_compiles("
         #include <gpiod.h>
         int main(void) {
-            enum gpiod_line_value v = GPIOD_LINE_VALUE_ACTIVE;
-            (void)v;
+            /* enum gpiod_line_value is v2-only; v1 uses int directly */
+            enum gpiod_line_value val = GPIOD_LINE_VALUE_ACTIVE;
+            (void)val;
             return 0;
         }
-    " LIBGPIOD_HAS_V2_VALUE_API)
+    " LIBGPIOD_HAS_V2_API)
     unset(CMAKE_REQUIRED_INCLUDES)
     unset(CMAKE_REQUIRED_LIBRARIES)
-endif()
 
-if(LIBGPIOD_HAS_V2_VALUE_API)
-    target_compile_definitions(motor PRIVATE LIBGPIOD_V2)
-else()
-    target_compile_definitions(motor PRIVATE LIBGPIOD_V1)
+    if(LIBGPIOD_HAS_V2_API)
+        add_definitions(-DLIBGPIOD_V2)
+        message(STATUS "libgpiod: using v2 API (version ${LIBGPIOD_VERSION})")
+    else()
+        add_definitions(-DLIBGPIOD_V1)
+        message(STATUS "libgpiod: using v1 API (version ${LIBGPIOD_VERSION})")
+    endif()
 endif()
 
 # Link pthread for Feetech driver (if using threads)
@@ -364,7 +368,8 @@ if(BUILD_UART_XL330_DRIVER)
     add_dependencies(motor uart_xl330_cargo_build)
     # Mark the Rust .a as generated so CMake doesn't complain about missing file at configure time
     set_source_files_properties("${RUST_LIB_PATH}" PROPERTIES GENERATED TRUE)
-    target_link_libraries(motor PUBLIC "${RUST_LIB_PATH}")
+    # Consumers will link the installed Rust lib via the MOTOR_RUST_LIB variable provided by motorConfig.cmake
+    target_link_libraries(motor PUBLIC $<BUILD_INTERFACE:${RUST_LIB_PATH}>)
     # Rust staticlib might need dl and m
     target_link_libraries(motor PUBLIC dl m)
 endif()
@@ -403,7 +408,7 @@ install(FILES include/motor.h DESTINATION include)
 # Export CMake targets
 install(EXPORT motorTargets
     FILE motorTargets.cmake
-    NAMESPACE motor::
+    NAMESPACE components::
     DESTINATION lib/cmake/motor
 )
 
@@ -417,11 +422,12 @@ if(BUILD_UART_XL330_DRIVER)
     set(_MOTOR_EXTRA_LINK_LIBS "${_MOTOR_RUST_LIB}")
 endif()
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake" [=[
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in" [=[
 # motorConfig.cmake — auto-generated
 #
 # Provides:
-#   motor::motor           — imported static library
+#   components::motor           — imported static library
+#   motor::motor                — alias for backward compatibility
 #   MOTOR_WHOLE_ARCHIVE    — TRUE (consumers must use --whole-archive for driver registration)
 #   MOTOR_RUST_LIB         — path to Rust companion lib (empty if not built)
 #
@@ -434,18 +440,31 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake" [=[
 
 include("${CMAKE_CURRENT_LIST_DIR}/motorTargets.cmake")
 
+# Ensure the imported target automatically links the Rust companion library
+if(NOT "@_MOTOR_EXTRA_LINK_LIBS@" STREQUAL "")
+    set_property(TARGET components::motor APPEND PROPERTY INTERFACE_LINK_LIBRARIES "@_MOTOR_EXTRA_LINK_LIBS@")
+endif()
+
+# Backward compatibility alias
+if(NOT TARGET motor::motor AND TARGET components::motor)
+    if(CMAKE_VERSION VERSION_LESS 3.18)
+        add_library(motor::motor INTERFACE IMPORTED)
+        set_target_properties(motor::motor PROPERTIES INTERFACE_LINK_LIBRARIES components::motor)
+    else()
+        add_library(motor::motor ALIAS components::motor)
+    endif()
+endif()
+
 set(MOTOR_WHOLE_ARCHIVE TRUE)
 set(MOTOR_RUST_LIB "@_MOTOR_EXTRA_LINK_LIBS@")
 ]=])
 
 # Replace @vars@ in the config file
 configure_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.out"
     @ONLY
 )
-file(RENAME "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.out"
-            "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake")
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
     DESTINATION lib/cmake/motor
@@ -458,7 +477,7 @@ if(BUILD_TESTS)
   
     # Add UART motor test (generic, supports feetech etc.) when Feetech driver is built
     if(BUILD_FEETECH_DRIVER)
-        add_executable(test_motor_uart test/test_motor_uart.c)
+        add_executable(test_motor_uart tests/test_motor_uart.c)
         set_target_properties(test_motor_uart PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_uart PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -475,7 +494,7 @@ if(BUILD_TESTS)
 
     # Add pwm motor test if driver is built
     if(BUILD_PWM_GENERIC_DRIVER)
-        add_executable(test_motor_pwm test/test_motor_pwm.c)
+        add_executable(test_motor_pwm tests/test_motor_pwm.c)
         set_target_properties(test_motor_pwm PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_pwm PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -492,7 +511,7 @@ if(BUILD_TESTS)
     #
     # Add CAN DM motor test if driver is built
     if(BUILD_CAN_DM_DRIVER)
-        add_executable(test_motor_can test/test_motor_can.c)
+        add_executable(test_motor_can tests/test_motor_can.c)
         set_target_properties(test_motor_can PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_can PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -510,7 +529,7 @@ if(BUILD_TESTS)
     
     # Add ECAT motor test if driver is built
     if(BUILD_ECAT_JMC_DRIVER)
-        add_executable(test_motor_ecat test/test_motor_ecat.c)
+        add_executable(test_motor_ecat tests/test_motor_ecat.c)
         set_target_properties(test_motor_ecat PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_ecat PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -528,7 +547,7 @@ if(BUILD_TESTS)
 
     # UART XL330 motor test (XL330/XC330)
     if(BUILD_UART_XL330_DRIVER)
-        add_executable(test_motor_xl330 test/test_uart_xl330.c)
+        add_executable(test_motor_xl330 tests/test_uart_xl330.c)
         set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_xl330 PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
