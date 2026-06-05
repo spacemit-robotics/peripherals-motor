@@ -5,6 +5,7 @@
   <description>Motor control library with pluggable drivers (CAN, PWM, UART) for servos and joint control</description>
   <system_depend check="dpkg -s libboost-dev">libboost-dev</system_depend>
   <system_depend check="pkg-config --exists libgpiod">libgpiod-dev</system_depend>
+  <system_depend check="cargo --version">cargo</system_depend>
   <export>
     <build_type>cmake</build_type>
   </export>
