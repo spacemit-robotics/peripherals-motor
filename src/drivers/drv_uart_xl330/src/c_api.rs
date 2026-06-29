@@ -130,7 +130,18 @@ pub extern "C" fn reachy_motor_get_state(dev: *mut MotorDev, state: *mut MotorSt
     let priv_ptr = unsafe { (*dev).priv_data as *const ReachyPriv };
     let motor_id = unsafe { (*priv_ptr).id };
     let state = unsafe { &mut *state };
-    
+
+    // Initialize all output fields to defined values up-front. The C-side
+    // `struct motor_state` is typically stack-allocated and NOT zeroed by the
+    // caller, so any field we leave untouched would expose uninitialized stack
+    // memory (e.g. a bogus `err` like 0x90A0D510 falsely flagged as a fatal
+    // motor error). Always write every field, including on the error path.
+    state.pos = 0.0;
+    state.vel = 0.0;
+    state.trq = 0.0;
+    state.temp = 0.0;
+    state.err = 0;
+
     let mut lock = CONTROLLER.lock().unwrap();
     if let Some(c) = lock.as_mut() {
         // Read position (Address 132 for XL330)
