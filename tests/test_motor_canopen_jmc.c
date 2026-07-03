@@ -64,6 +64,11 @@ int main(int argc, char** argv) {
         {"motors", required_argument, 0, 'm'},
         {"nums", required_argument, 0, 'n'},
         {"cycle", required_argument, 0, 'c'},
+        {"if", required_argument, 0, 1},
+        {"iface", required_argument, 0, 1},
+        {"id", required_argument, 0, 2},
+        {"driver", required_argument, 0, 3},
+        {"baud", required_argument, 0, 4},
         {"verbose", no_argument, 0, 'v'},
         {"quiet", no_argument, 0, 'q'},
         {"help", no_argument, 0, 'h'},
@@ -71,6 +76,7 @@ int main(int argc, char** argv) {
     };
 
     int opt;
+    opterr = 0; // Disable getopt automatic error printing for unknown options
     while ((opt = getopt_long(argc, argv, "m:n:c:vqh", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'm':
@@ -87,10 +93,18 @@ int main(int argc, char** argv) {
             case 'q':
                 g_verbose = 0;
                 break;
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+            case '?':
+                // Ignore these, load_config_and_args will handle them
+                break;
             case 'h':
-            default:
                 usage(argv[0]);
                 return 0;
+            default:
+                break;
         }
     }
 
@@ -270,6 +284,21 @@ int main(int argc, char** argv) {
         sleep_ms(cycle_ms);
     }
 
+    printf("--> 验证 0x6081 (Profile Velocity) 写入是否生效...\n");
+    sdo_addr_t vel_addr = {0x6081, 0x00, 4};
+    int32_t get_vel = 0;
+    if (motor_get_paras(devs[0], &vel_addr, &get_vel, 4) == 0) {
+        int32_t expected = (int32_t)(6.283f / (2.0f * (float)M_PI) * 10.0f);
+        printf("成功读取 0x6081: %d (期望: %d)\n", get_vel, expected);
+        if (get_vel == expected) {
+            printf(">>> 速度目标地址 (0x6081) 验证成功！ <<<\n");
+        } else {
+            printf(">>> 速度目标地址验证失败！ <<<\n");
+        }
+    } else {
+        printf("读取 0x6081 失败\n");
+    }
+
     for (int i = 0; i < motor_count; i++) {
         cmds[i].vel_des = -6.283f; // ~ -1 rps
     }
@@ -321,6 +350,40 @@ int main(int argc, char** argv) {
             break;
         }
         sleep_ms(cycle_ms);
+    }
+
+    // --- IDLE Test ---
+    printf("\n========================================\n");
+    printf("开始 IDLE 模式 (失能) 测试...\n");
+    for (int i = 0; i < motor_count; i++) {
+        cmds[i].mode = MOTOR_MODE_IDLE;
+    }
+
+    int idle_success = 0;
+    for (uint32_t t = 0; t < 2000 / cycle_ms && g_running; t++) {
+        motor_get_states(devs, states, motor_count);
+        motor_set_cmds(devs, cmds, motor_count);
+
+        int all_disabled = 1;
+        for (int i = 0; i < motor_count; i++) {
+            uint16_t sw = (uint16_t)states[i].err;
+            // 0x27 is Operation Enabled, we expect it to exit this state
+            if ((sw & 0x6F) == 0x27) {
+                all_disabled = 0;
+            }
+        }
+
+        if (all_disabled) {
+            idle_success = 1;
+            break;
+        }
+        sleep_ms(cycle_ms);
+    }
+
+    if (idle_success) {
+        printf(">>> IDLE 失能状态流转验证成功！ (M0 SW: 0x%04X) <<<\n", (uint16_t)states[0].err);
+    } else {
+        printf(">>> IDLE 失能状态流转验证失败！电机未能退出使能状态 (M0 SW: 0x%04X) <<<\n", (uint16_t)states[0].err);
     }
 
     printf("\n测试停止.\n");

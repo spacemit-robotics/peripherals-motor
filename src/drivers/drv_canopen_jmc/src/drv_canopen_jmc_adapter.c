@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
 #include <math.h>
 #include <motor.h>
 #include <motor_core.h>
@@ -13,6 +14,7 @@
 #include <stdlib.h>
 #include <sched.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
@@ -52,6 +54,9 @@ typedef struct {
     int homing_state;
     int sdo_resp_ready;
     uint8_t last_sdo_resp[8];
+    int fault_count;
+    char iface[IFNAMSIZ];
+    char name[IFNAMSIZ + 24];  /* 唯一设备名：drv_canopen_jmc_<iface>_<id> */
 } motor_ctx_t;
 
 typedef struct {
@@ -62,14 +67,14 @@ typedef struct {
 
 static motor_ctx_t g_motors[MAX_ADAPTER_MOTORS];
 static int g_configured_motors = 0;
+static int g_ref_count = 0;   /* 已分配的设备数：用于在最后一个设备释放时才清理 */
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_sdo_cond = PTHREAD_COND_INITIALIZER;  /* 唤醒等待 SDO 响应的调用者 */
 static pthread_t g_thread;
 static volatile int g_running = 0;
-static int g_sync_socket = -1;
 static uint32_t g_requested_cycle_ms = 10;
-static const char* g_iface = "can0";
 
-static void send_can_frame(int sock, uint32_t can_id, const uint8_t* data, uint8_t len) {
+static int send_can_frame(int sock, uint32_t can_id, const uint8_t* data, uint8_t len) {
     struct can_frame frame;
     memset(&frame, 0, sizeof(frame));
     frame.can_id = can_id;
@@ -77,7 +82,11 @@ static void send_can_frame(int sock, uint32_t can_id, const uint8_t* data, uint8
     if (len > 0 && data) {
         memcpy(frame.data, data, len);
     }
-    write(sock, &frame, sizeof(frame));
+    int ret = write(sock, &frame, sizeof(frame));
+    if (ret < 0) {
+        fprintf(stderr, "send_can_frame failed (id: 0x%X): %s (errno: %d)\n", can_id, strerror(errno), errno);
+    }
+    return ret;
 }
 
 static int sdo_write(int sock, int node_id, uint16_t index, uint8_t subindex, uint32_t data, uint8_t size) {
@@ -94,7 +103,7 @@ static int sdo_write(int sock, int node_id, uint16_t index, uint8_t subindex, ui
         (uint8_t)(data & 0xFF), (uint8_t)((data >> 8) & 0xFF),
         (uint8_t)((data >> 16) & 0xFF), (uint8_t)((data >> 24) & 0xFF)
     };
-    send_can_frame(sock, 0x600 + node_id, payload, 8);
+    if (send_can_frame(sock, 0x600 + node_id, payload, 8) < 0) return -1;
     usleep(5000);
     return 0;
 }
@@ -113,25 +122,48 @@ static int sdo_write_sync(int sock, int node_id, int motor_idx, uint16_t index, 
         (uint8_t)(data & 0xFF), (uint8_t)((data >> 8) & 0xFF),
         (uint8_t)((data >> 16) & 0xFF), (uint8_t)((data >> 24) & 0xFF)
     };
+    pthread_mutex_lock(&g_mutex);
     g_motors[motor_idx].sdo_resp_ready = 0;
     send_can_frame(sock, 0x600 + node_id, payload, 8);
 
-    int timeout = 50;
-    while (timeout > 0 && g_running) {
-        if (g_motors[motor_idx].sdo_resp_ready) {
-            uint8_t* resp = g_motors[motor_idx].last_sdo_resp;
-            if ((resp[0] & 0xE0) == 0x60) {
-                return 0; // Success
-            } else if (resp[0] == 0x80) {
-                fprintf(stderr, "SDO Write Aborted. Index: %04X, Sub: %02X, Code: %02X%02X%02X%02X\n",
-                        index, subindex, resp[7], resp[6], resp[5], resp[4]);
-                return -1; // Abort
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += 50 * 1000 * 1000; /* 50ms timeout */
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec += 1; ts.tv_nsec -= 1000000000L; }
+
+    int ret = -1; // default: timeout
+    while (g_running) {
+        if (!g_motors[motor_idx].sdo_resp_ready) {
+            if (pthread_cond_timedwait(&g_sdo_cond, &g_mutex, &ts) == ETIMEDOUT) {
+                break;
             }
         }
-        usleep(1000);
-        timeout--;
+        if (g_motors[motor_idx].sdo_resp_ready) {
+            uint8_t* resp = g_motors[motor_idx].last_sdo_resp;
+            uint16_t resp_idx = resp[1] | (resp[2] << 8);
+            uint8_t resp_sub = resp[3];
+
+            /* 仅当索引/子索引匹配，且响应类型确实是本次写事务的结果
+             * （download ack 0x60 或 abort 0x80）时才判定。
+             * 若收到同索引的 upload 响应(0x40)等其它类型，说明是别的事务，
+             * 清标志继续等待，避免把它误判为写失败。 */
+            uint8_t cs = resp[0] & 0xE0;
+            if (resp_idx == index && resp_sub == subindex && (cs == 0x60 || resp[0] == 0x80)) {
+                if (cs == 0x60) {
+                    ret = 0; // Success
+                } else {
+                    fprintf(stderr, "SDO Write Aborted. Index: %04X, Sub: %02X, Code: %02X%02X%02X%02X\n",
+                            index, subindex, resp[7], resp[6], resp[5], resp[4]);
+                    ret = -1; // Abort
+                }
+                break; // Found matching response, exit loop
+            } else {
+                g_motors[motor_idx].sdo_resp_ready = 0; // Not matching, keep waiting
+            }
+        }
     }
-    return -1; // Timeout
+    pthread_mutex_unlock(&g_mutex);
+    return ret;
 }
 
 static int sdo_write_async(int sock, int node_id, uint16_t index, uint8_t subindex, uint32_t data, uint8_t size) {
@@ -148,7 +180,7 @@ static int sdo_write_async(int sock, int node_id, uint16_t index, uint8_t subind
         (uint8_t)(data & 0xFF), (uint8_t)((data >> 8) & 0xFF),
         (uint8_t)((data >> 16) & 0xFF), (uint8_t)((data >> 24) & 0xFF)
     };
-    send_can_frame(sock, 0x600 + node_id, payload, 8);
+    if (send_can_frame(sock, 0x600 + node_id, payload, 8) < 0) return -1;
     return 0;
 }
 
@@ -159,38 +191,62 @@ static int sdo_read(int sock, int node_id, int motor_idx, uint16_t index, uint8_
         subindex,
         0, 0, 0, 0
     };
+    pthread_mutex_lock(&g_mutex);
     g_motors[motor_idx].sdo_resp_ready = 0;
     send_can_frame(sock, 0x600 + node_id, payload, 8);
 
-    int timeout = 50; // 50ms
-    while (timeout > 0 && g_running) {
-        if (g_motors[motor_idx].sdo_resp_ready) {
-            uint8_t* resp = g_motors[motor_idx].last_sdo_resp;
-            if ((resp[0] & 0xE0) == 0x40) {
-                if (out_data) {
-                    *out_data = resp[4] | (resp[5] << 8) | (resp[6] << 16) | (resp[7] << 24);
-                }
-                if (out_size) {
-                    if (resp[0] == 0x4F) *out_size = 1;
-                    else if (resp[0] == 0x4B) *out_size = 2;
-                    else if (resp[0] == 0x43) *out_size = 4;
-                    else *out_size = 4;
-                }
-                return 0;
-            } else if (resp[0] == 0x80) {
-                return -1;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += 50 * 1000 * 1000; /* 50ms timeout */
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec += 1; ts.tv_nsec -= 1000000000L; }
+
+    int ret = -1;
+    while (g_running) {
+        if (!g_motors[motor_idx].sdo_resp_ready) {
+            if (pthread_cond_timedwait(&g_sdo_cond, &g_mutex, &ts) == ETIMEDOUT) {
+                break;
             }
         }
-        usleep(1000);
-        timeout--;
+        if (g_motors[motor_idx].sdo_resp_ready) {
+            uint8_t* resp = g_motors[motor_idx].last_sdo_resp;
+            uint16_t resp_idx = resp[1] | (resp[2] << 8);
+            uint8_t resp_sub = resp[3];
+
+            /* 仅当索引/子索引匹配，且响应类型确实是本次读事务的结果
+             * （upload response 0x40 或 abort 0x80）时才判定。
+             * 若收到同索引的 download ack(0x60) 等其它类型，说明是别的事务，
+             * 清标志继续等待，避免把它误判为读失败。 */
+            uint8_t cs = resp[0] & 0xE0;
+            if (resp_idx == index && resp_sub == subindex && (cs == 0x40 || resp[0] == 0x80)) {
+                if (cs == 0x40) {
+                    if (out_data) {
+                        *out_data = resp[4] | (resp[5] << 8) | (resp[6] << 16) | (resp[7] << 24);
+                    }
+                    if (out_size) {
+                        if (resp[0] == 0x4F) *out_size = 1;
+                        else if (resp[0] == 0x4B) *out_size = 2;
+                        else if (resp[0] == 0x43) *out_size = 4;
+                        else *out_size = 4;
+                    }
+                    ret = 0;
+                } else {
+                    ret = -1;
+                }
+                break; // Found matching response, exit loop
+            } else {
+                g_motors[motor_idx].sdo_resp_ready = 0; // Not matching, keep waiting
+            }
+        }
     }
-    return -1;
+    pthread_mutex_unlock(&g_mutex);
+    return ret;
 }
 
-static void send_nmt(int sock, uint8_t command, uint8_t node_id) {
+static int send_nmt(int sock, uint8_t command, uint8_t node_id) {
     uint8_t data[2] = {command, node_id};
-    send_can_frame(sock, 0x000, data, 2);
+    int ret = send_can_frame(sock, 0x000, data, 2);
     usleep(5000);
+    return ret;
 }
 
 static int init_can_socket(const char* iface) {
@@ -198,8 +254,14 @@ static int init_can_socket(const char* iface) {
     if (sock < 0) return -1;
 
     struct ifreq ifr;
-    strcpy(ifr.ifr_name, iface);
-    ioctl(sock, SIOCGIFINDEX, &ifr);
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
+    ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
+        fprintf(stderr, "init_can_socket: ioctl(SIOCGIFINDEX) failed for '%s'\n", iface);
+        close(sock);
+        return -1;
+    }
 
     struct sockaddr_can addr;
     memset(&addr, 0, sizeof(addr));
@@ -220,9 +282,6 @@ static int init_can_socket(const char* iface) {
 }
 
 static void* canopen_background_thread(void* arg) {
-    // Send NMT start to all nodes
-    send_nmt(g_sync_socket, 0x01, 0x00);
-
     uint64_t cycle_us = g_requested_cycle_ms * 1000;
 
     while (g_running) {
@@ -230,6 +289,7 @@ static void* canopen_background_thread(void* arg) {
 
         // Read incoming TPDOs
         for (int i = 0; i < g_configured_motors; i++) {
+            if (g_motors[i].socket <= 0) continue;  // 跳过未初始化的电机
             struct can_frame frame;
             while (read(g_motors[i].socket, &frame, sizeof(frame)) == sizeof(frame)) {
                 if (frame.can_id == (uint32_t)(0x280 + g_motors[i].id)) {
@@ -250,18 +310,45 @@ static void* canopen_background_thread(void* arg) {
                     if ((frame.data[0] & 0xE0) == 0x40 || (frame.data[0] & 0xE0) == 0x60 || frame.data[0] == 0x80) {
                         memcpy(g_motors[i].last_sdo_resp, frame.data, 8);
                         g_motors[i].sdo_resp_ready = 1;
+                        /* 唤醒在 sdo_write_sync / sdo_read 中等待的调用者 */
+                        pthread_cond_broadcast(&g_sdo_cond);
                     }
                 }
             }
         }
 
-        // Send SYNC
-        send_can_frame(g_sync_socket, 0x080, NULL, 0);
+        // Send SYNC：每条总线只发一次。去重基于"仍活跃(socket>0)的电机"，
+        // 这样即使某总线的首个电机被单独释放，同线下一个活跃电机也能接管发送 SYNC。
+        for (int i = 0; i < g_configured_motors; i++) {
+            if (g_motors[i].socket <= 0) continue;
+            int is_first_active = 1;
+            for (int j = 0; j < i; j++) {
+                if (g_motors[j].socket > 0 && strcmp(g_motors[i].iface, g_motors[j].iface) == 0) {
+                    is_first_active = 0;
+                    break;
+                }
+            }
+            if (is_first_active) {
+                send_can_frame(g_motors[i].socket, 0x080, NULL, 0);
+            }
+        }
 
         // Send RPDOs
         for (int i = 0; i < g_configured_motors; i++) {
-            if (1) {
-                if (g_motors[i].cmd.mode == MOTOR_MODE_POS || g_motors[i].cmd.mode == MOTOR_MODE_CSP ||
+            if (g_motors[i].socket > 0) {
+                if (g_motors[i].cmd.mode == MOTOR_MODE_IDLE) {
+                    uint16_t ctrl = 0x0006; // Shutdown / Disable Voltage
+                    int32_t pos_pulses = (int32_t)(g_motors[i].state.pos * RAD_TO_PULSE);
+                    uint8_t data[6];
+                    data[0] = ctrl & 0xFF;
+                    data[1] = (ctrl >> 8) & 0xFF;
+                    data[2] = pos_pulses & 0xFF;
+                    data[3] = (pos_pulses >> 8) & 0xFF;
+                    data[4] = (pos_pulses >> 16) & 0xFF;
+                    data[5] = (pos_pulses >> 24) & 0xFF;
+
+                    send_can_frame(g_motors[i].socket, 0x400 + g_motors[i].id, data, 6);
+                } else if (g_motors[i].cmd.mode == MOTOR_MODE_POS || g_motors[i].cmd.mode == MOTOR_MODE_CSP ||
                     g_motors[i].cmd.mode == MOTOR_MODE_VEL || g_motors[i].cmd.mode == MOTOR_MODE_CSV ||
                     g_motors[i].cmd.mode == MOTOR_MODE_HM) {
                     uint16_t ctrl = 0x0006; // Default to Shutdown to push state machine
@@ -269,13 +356,12 @@ static void* canopen_background_thread(void* arg) {
 
                     if (g_motors[i].status_word & 0x0008) {
                         // Fault state
-                        static int fault_count = 0;
-                        if (fault_count++ < 10) {
+                        if (g_motors[i].fault_count++ < 10) {
                             ctrl = 0x0000; // Drop edge
                         } else {
                             ctrl = 0x0080; // Rising edge Fault reset
                         }
-                        if (fault_count > 20) fault_count = 0;
+                        if (g_motors[i].fault_count > 20) g_motors[i].fault_count = 0;
                         g_motors[i].pp_state = 0;
                     } else if ((g_motors[i].status_word & 0x004F) == 0x0040) {
                         // Switch on disabled
@@ -311,14 +397,18 @@ static void* canopen_background_thread(void* arg) {
                                 g_motors[i].pp_state = 0;
                             }
                         } else if (g_motors[i].cmd.mode == MOTOR_MODE_VEL || g_motors[i].cmd.mode == MOTOR_MODE_CSV) {
-                            if (g_motors[i].current_mode != 3) {
+                            int just_entered_pv = (g_motors[i].current_mode != 3);
+                            if (just_entered_pv) {
                                 sdo_write_async(sock, id, 0x6060, 0, 0x03, 1);
                                 sdo_write_async(sock, id, 0x6083, 0, 1000, 2);
                                 sdo_write_async(sock, id, 0x6084, 0, 1000, 2);
                                 g_motors[i].current_mode = 3;
                             }
                             int32_t vel_des = (int32_t)(g_motors[i].cmd.vel_des / (2.0f * (float)M_PI) * 10.0f);
-                            if (vel_des != g_motors[i].last_sdo_vel) {
+                            /* 首次进入 PV 模式时，硬件 0x6081 仍是初始化写入的非零值，
+                             * 缓存 last_sdo_vel 与实际不一致；此时无条件写一次目标速度，
+                             * 避免 vel_des==0 被增量判据跳过而沿用旧速度。 */
+                            if (just_entered_pv || vel_des != g_motors[i].last_sdo_vel) {
                                 sdo_write_async(sock, id, 0x6081, 0, vel_des, 4);
                                 g_motors[i].last_sdo_vel = vel_des;
                             }
@@ -360,50 +450,75 @@ static void* canopen_background_thread(void* arg) {
 static int adapter_init(struct motor_dev* dev) {
     pthread_mutex_lock(&g_mutex);
 
-    if (!g_running) {
-        g_sync_socket = init_can_socket(g_iface);
-        if (g_sync_socket < 0) {
+    /* 幂等初始化：为所有尚未打开 socket 的电机建链并配置 PDO。
+     * 这样即使上层以 "probe1->init1->probe2->init2" 交替调用，
+     * 后加入的电机也能被正确初始化，而不会停留在 socket<=0 的未初始化状态。 */
+    for (int i = 0; i < g_configured_motors; i++) {
+        if (g_motors[i].socket > 0) continue;  // 已初始化，跳过
+
+        int sock = init_can_socket(g_motors[i].iface);
+        if (sock < 0) {
             pthread_mutex_unlock(&g_mutex);
             return -1;
         }
+        g_motors[i].socket = sock;
+        int id = g_motors[i].id;
 
-        for (int i = 0; i < g_configured_motors; i++) {
-            int sock = init_can_socket(g_iface);
-            g_motors[i].socket = sock;
-            int id = g_motors[i].id;
+        // Set RPDO params
+        sdo_write(sock, id, 0x1402, 1, 0x400 + id, 4);
+        sdo_write(sock, id, 0x1402, 2, 0x01, 1);
+        sdo_write(sock, id, 0x1602, 0, 0x00, 1);
+        sdo_write(sock, id, 0x1602, 1, 0x60400010, 4);
+        sdo_write(sock, id, 0x1602, 2, 0x607A0020, 4);
+        sdo_write(sock, id, 0x1602, 0, 0x02, 1);
 
-            // Set RPDO params
-            sdo_write(sock, id, 0x1402, 1, 0x400 + id, 4);
-            sdo_write(sock, id, 0x1402, 2, 0x01, 1);
-            sdo_write(sock, id, 0x1602, 0, 0x00, 1);
-            sdo_write(sock, id, 0x1602, 1, 0x60400010, 4);
-            sdo_write(sock, id, 0x1602, 2, 0x607A0020, 4);
-            sdo_write(sock, id, 0x1602, 0, 0x02, 1);
+        // Set TPDO params
+        sdo_write(sock, id, 0x1801, 1, 0x280 + id, 4);
+        sdo_write(sock, id, 0x1801, 2, 0x01, 1);
+        sdo_write(sock, id, 0x1A01, 0, 0x00, 1);
+        sdo_write(sock, id, 0x1A01, 1, 0x60410010, 4);
+        sdo_write(sock, id, 0x1A01, 2, 0x60640020, 4);
+        sdo_write(sock, id, 0x1A01, 0, 0x02, 1);
 
-            // Set TPDO params
-            sdo_write(sock, id, 0x1801, 1, 0x280 + id, 4);
-            sdo_write(sock, id, 0x1801, 2, 0x01, 1);
-            sdo_write(sock, id, 0x1A01, 0, 0x00, 1);
-            sdo_write(sock, id, 0x1A01, 1, 0x60410010, 4);
-            sdo_write(sock, id, 0x1A01, 2, 0x60640020, 4);
-            sdo_write(sock, id, 0x1A01, 0, 0x02, 1);
+        // Set Mode
+        sdo_write(sock, id, 0x6060, 0, 0x01, 1); // PP mode
+        g_motors[i].current_mode = 1;
+        g_motors[i].last_sdo_vel = 0;
 
-            // Set Mode
-            sdo_write(sock, id, 0x6060, 0, 0x01, 1); // PP mode
-            g_motors[i].current_mode = 1;
-            g_motors[i].last_sdo_vel = 0;
+        // Set Profile params
+        sdo_write(sock, id, 0x6081, 0, 10000, 4); // Vel
+        sdo_write(sock, id, 0x6083, 0, 2000, 2); // Accel
+        sdo_write(sock, id, 0x6084, 0, 2000, 2); // Decel
 
-            // Set Profile params
-            sdo_write(sock, id, 0x6081, 0, 10000, 4); // Vel
-            sdo_write(sock, id, 0x6083, 0, 2000, 2); // Accel
-            sdo_write(sock, id, 0x6084, 0, 2000, 2); // Decel
+        g_motors[i].pdo_ready = 1;
+    }
 
-            g_motors[i].pdo_ready = 1;
+    /* 对每条总线发送一次 NMT Start（按 iface 去重），使新加入的节点进入 operational。
+     * 原实现放在后台线程启动时执行，无法覆盖线程启动后才加入的电机。 */
+    for (int i = 0; i < g_configured_motors; i++) {
+        if (g_motors[i].socket <= 0) continue;
+        int is_first = 1;
+        for (int j = 0; j < i; j++) {
+            if (strcmp(g_motors[i].iface, g_motors[j].iface) == 0) {
+                is_first = 0;
+                break;
+            }
         }
+        if (is_first) {
+            send_nmt(g_motors[i].socket, 0x01, 0x00);
+        }
+    }
 
+    if (!g_running) {
         g_running = 1;
         if (pthread_create(&g_thread, NULL, canopen_background_thread, NULL) != 0) {
             g_running = 0;
+            for (int j = 0; j < g_configured_motors; j++) {
+                if (g_motors[j].socket > 0) {
+                    close(g_motors[j].socket);
+                    g_motors[j].socket = -1;
+                }
+            }
             pthread_mutex_unlock(&g_mutex);
             return -1;
         }
@@ -420,6 +535,10 @@ static int adapter_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     pthread_mutex_lock(&g_mutex);
 
     motor_ctx_t* m = &g_motors[motor_idx];
+
+    if (m->cmd.mode != cmd->mode) {
+        m->start_pos_set = 0;
+    }
 
     if (m->operation_enabled && m->start_pos_set == 0) {
         m->start_pos = (int32_t)(m->state.pos * RAD_TO_PULSE);
@@ -483,24 +602,61 @@ static int adapter_get_paras(struct motor_dev* dev, const void* address, void* o
 static void adapter_free(struct motor_dev* dev) {
     if (!dev) return;
 
-    if (g_running) {
-        g_running = 0;
-        pthread_join(g_thread, NULL);
+    /* 引用计数：仅当最后一个设备释放时才停线程、关 socket，
+     * 避免部分释放（n>1 时首次 free）误伤其他仍在使用的电机。 */
+    pthread_mutex_lock(&g_mutex);
+    int last = (--g_ref_count <= 0);
 
-        // Send NMT Pre-operational to all nodes to stop autonomous motion (like Homing)
-        send_nmt(g_sync_socket, 0x80, 0x00);
-
-        // Close sockets
-        for (int i = 0; i < g_configured_motors; i++) {
-            if (g_motors[i].socket > 0) {
-                close(g_motors[i].socket);
-                g_motors[i].socket = -1;
+    if (last) {
+        if (g_running) {
+            // Send NMT Pre-operational to all nodes to stop autonomous motion (like Homing)
+            for (int i = 0; i < g_configured_motors; i++) {
+                int is_first = 1;
+                for (int j = 0; j < i; j++) {
+                    if (strcmp(g_motors[i].iface, g_motors[j].iface) == 0) {
+                        is_first = 0;
+                        break;
+                    }
+                }
+                if (is_first && g_motors[i].socket > 0) {
+                    send_nmt(g_motors[i].socket, 0x80, 0x00);
+                }
             }
+
+            g_running = 0;
+            /* 唤醒任何仍在等待 SDO 响应的调用者，使其尽快退出 */
+            pthread_cond_broadcast(&g_sdo_cond);
+            pthread_mutex_unlock(&g_mutex);
+
+            pthread_join(g_thread, NULL);
+
+            // Close sockets
+            for (int i = 0; i < g_configured_motors; i++) {
+                if (g_motors[i].socket > 0) {
+                    close(g_motors[i].socket);
+                    g_motors[i].socket = -1;
+                }
+            }
+        } else {
+            pthread_mutex_unlock(&g_mutex);
         }
-        if (g_sync_socket > 0) {
-            close(g_sync_socket);
-            g_sync_socket = -1;
+        g_configured_motors = 0;
+        g_ref_count = 0;
+    } else {
+        /* 部分释放（还有其它电机在用）：仅停用并关闭当前这个节点，
+         * 而不是什么都不做。否则后台线程会继续用旧 cmd 给已释放的电机发 RPDO。
+         * - 对该节点发 NMT Stop，令其停止自主运动（如 Homing）；
+         * - 关闭其 socket 并置 -1，后台线程据此跳过该 slot；
+         * - 复位其命令为 IDLE，避免 slot 被后续 factory 复用前残留旧状态。 */
+        int motor_idx = (int)(intptr_t)dev->priv_data;
+        if (motor_idx >= 0 && motor_idx < g_configured_motors && g_motors[motor_idx].socket > 0) {
+            send_nmt(g_motors[motor_idx].socket, 0x02, (uint8_t)g_motors[motor_idx].id);
+            close(g_motors[motor_idx].socket);
+            g_motors[motor_idx].socket = -1;
+            g_motors[motor_idx].cmd.mode = MOTOR_MODE_IDLE;
+            g_motors[motor_idx].operation_enabled = 0;
         }
+        pthread_mutex_unlock(&g_mutex);
     }
 
     free(dev);
@@ -521,19 +677,32 @@ static struct motor_dev* adapter_factory(void* args) {
 
     if (g_configured_motors >= MAX_ADAPTER_MOTORS) return NULL;
 
-    if (can_args->iface) {
-        g_iface = can_args->iface;
-    }
-
     struct motor_dev* dev = calloc(1, sizeof(struct motor_dev));
     if (!dev) return NULL;
 
-    dev->name = "drv_canopen_jmc";
-    dev->ops = &g_adapter_ops;
-    dev->priv_data = (void*)(intptr_t)g_configured_motors;
+    g_ref_count++;   /* 每分配一个设备，引用计数 +1 */
 
-    memset(&g_motors[g_configured_motors], 0, sizeof(motor_ctx_t));
-    g_motors[g_configured_motors].id = can_args->can_id;
+    int idx = g_configured_motors;
+
+    dev->ops = &g_adapter_ops;
+    dev->priv_data = (void*)(intptr_t)idx;
+
+    memset(&g_motors[idx], 0, sizeof(motor_ctx_t));
+    g_motors[idx].id = can_args->can_id;
+    g_motors[idx].socket = -1;  /* 显式标记未初始化，避免与合法 fd 0 混淆 */
+
+    char iface[IFNAMSIZ];
+    if (can_args->iface) {
+        strncpy(iface, can_args->iface, IFNAMSIZ - 1);
+        iface[IFNAMSIZ - 1] = '\0';
+    } else {
+        strcpy(iface, "can0");
+    }
+    strcpy(g_motors[idx].iface, iface);
+
+    // 生成唯一设备名（含总线与 node id），便于多总线/多电机场景区分日志
+    snprintf(g_motors[idx].name, sizeof(g_motors[idx].name), "drv_canopen_jmc_%s_%d", iface, g_motors[idx].id);
+    dev->name = g_motors[idx].name;
 
     g_configured_motors++;
     return dev;
