@@ -21,8 +21,14 @@ extern "C" {
 #include "damiao_pack.h"
 
 // 私有数据
+// 生命周期约定：priv 与其宿主 motor_dev 严格同生共死——
+//   - 在 dm1_probe 中一并分配，dev->name 指向 priv->dev_name；
+//   - 在 dm1_free 中必须先释放 dev（不再访问 dev->name）再释放 priv，
+//     或如当前实现在同一函数内先 free(priv) 后 free(dev) 且其间不再解引用 dev->name。
+// 因此 dev->name 不会悬空。请勿在别处单独释放 priv 而保留 dev。
 struct dm1_priv {
     char bus_name[32];
+    char dev_name[48];  // dev->name 指向此处，生命周期同 priv
     uint16_t can_id;
     struct timespec cmd_send_time;
     bool initialized;
@@ -84,14 +90,19 @@ static int dm1_get_state(struct motor_dev* dev, struct motor_state* state) {
 // ========== 4. 释放电机 ==========
 
 static void dm1_free(struct motor_dev* dev) {
+    if (!dev) return;
+
     struct dm1_priv* priv = (struct dm1_priv*)dev->priv_data;
 
     if (priv && priv->initialized) {
         damiao_release(priv->bus_name, priv->can_id);
     }
 
+    // dev->name 指向 priv->dev_name：先断开引用，再释放 priv，避免释放后残留悬空指针
+    dev->name = NULL;
     if (dev->priv_data) {
         free(dev->priv_data);
+        dev->priv_data = NULL;
     }
     free(dev);
 }
@@ -150,7 +161,6 @@ static struct motor_dev* dm1_probe(void* args) {
         return NULL;
     }
 
-    dev->name = "dm_can1";
     dev->ops = &dm1_ops;
     dev->priv_data = priv;
 
@@ -163,6 +173,10 @@ static struct motor_dev* dm1_probe(void* args) {
         snprintf(priv->bus_name, sizeof(priv->bus_name), "can0");
     }
     priv->can_id = params->can_id;
+
+    // 生成唯一设备名（含总线与 CAN ID），便于多总线/多电机场景区分日志
+    snprintf(priv->dev_name, sizeof(priv->dev_name), "dm_%s_0x%02X", priv->bus_name, priv->can_id);
+    dev->name = priv->dev_name;
 
     // 收集配置，等待 init 时统一初始化
     damiao_add_config(priv->bus_name, priv->can_id, 0);

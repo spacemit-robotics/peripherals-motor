@@ -181,6 +181,20 @@ public:
     void disableAll();
 
     /**
+     * @brief 使能指定电机
+     * @param bus_name 总线名称
+     * @param can_id 电机 ID
+     */
+    void enable(const std::string& bus_name, uint16_t can_id);
+
+    /**
+     * @brief 失能指定电机
+     * @param bus_name 总线名称
+     * @param can_id 电机 ID
+     */
+    void disable(const std::string& bus_name, uint16_t can_id);
+
+    /**
      * @brief 设置电机零点
      * @param bus_name 总线名称
      * @param can_id 电机 ID
