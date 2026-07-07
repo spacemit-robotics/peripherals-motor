@@ -199,6 +199,36 @@ if(_ecat_jmc_requested)
     endif()
 endif()
 
+# CANOpen JMC driver path
+set(CANOPEN_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_canopen_jmc")
+
+# Decide whether CANOpen JMC is requested:
+set(_canopen_jmc_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_canopen_jmc_requested ON)
+elseif("drv_canopen_jmc" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "canopen_jmc" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_canopen_jmc_requested ON)
+endif()
+
+set(BUILD_CANOPEN_JMC_DRIVER OFF)
+if(_canopen_jmc_requested)
+    if(EXISTS "${CANOPEN_JMC_DRIVER_PATH}")
+        set(BUILD_CANOPEN_JMC_DRIVER ON)
+        message(STATUS "Found CANOpen JMC driver at: ${CANOPEN_JMC_DRIVER_PATH}")
+
+        include_directories(
+            ${CANOPEN_JMC_DRIVER_PATH}/include
+        )
+        set(CANOPEN_JMC_SOURCES
+            ${CANOPEN_JMC_DRIVER_PATH}/src/drv_canopen_jmc_adapter.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${CANOPEN_JMC_DRIVER_PATH}")
+            message(WARNING "CANOpen JMC driver requested but not found at: ${CANOPEN_JMC_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
 # Decide whether UART XL330 is requested:
 set(_uart_xl330_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -273,6 +303,13 @@ endif()
 if(BUILD_ECAT_JMC_DRIVER)
     list(APPEND MOTOR_DRIVER_SOURCES
         ${ECAT_JMC_SOURCES}
+    )
+endif()
+
+# Add CANOpen JMC motor driver if available
+if(BUILD_CANOPEN_JMC_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CANOPEN_JMC_SOURCES}
     )
 endif()
 
@@ -543,6 +580,22 @@ if(BUILD_TESTS)
             pthread
         )
         install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
+    endif()
+
+    # Add CANOpen JMC motor test if driver is built
+    if(BUILD_CANOPEN_JMC_DRIVER)
+        add_executable(test_motor_canopen_jmc tests/test_motor_canopen_jmc.c)
+        set_target_properties(test_motor_canopen_jmc PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_canopen_jmc PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+        target_link_libraries(test_motor_canopen_jmc
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_canopen_jmc RUNTIME DESTINATION bin)
     endif()
 
     # UART XL330 motor test (XL330/XC330)
