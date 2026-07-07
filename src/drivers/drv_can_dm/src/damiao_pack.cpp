@@ -145,8 +145,8 @@ int damiao_set_cmd(const char* bus_name, uint16_t can_id, uint32_t mode, float p
             std::cout << "[DamiaoPack] Switching motor " << can_id << " mode: " << current << " -> " << target
                     << std::endl;
             g_damiao_hw->switchMode(bus, can_id, mode_to_dm_code(mode));
-            // 切换后需要重新使能
-            g_damiao_hw->enableAll();
+            // 切换后仅重新使能当前电机，避免影响同一 HW 下其他总线/电机的使能状态
+            g_damiao_hw->enable(bus, can_id);
             // 等待模式切换生效
             usleep(100000);  // 100ms
         }
@@ -170,7 +170,8 @@ int damiao_set_cmd(const char* bus_name, uint16_t can_id, uint32_t mode, float p
             break;
 
         case MOTOR_MODE_IDLE:
-            g_damiao_hw->disableAll();
+            // 仅失能当前电机，避免误伤同一 HW 下其他总线/电机
+            g_damiao_hw->disable(bus, can_id);
             break;
 
         default:

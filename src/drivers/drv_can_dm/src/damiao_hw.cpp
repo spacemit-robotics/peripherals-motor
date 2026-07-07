@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -181,6 +183,30 @@ void DamiaoHW::disableAll() {
         kv.second->disable_all();
     }
     std::cout << "[DamiaoHW] All motors disabled" << std::endl;
+}
+
+void DamiaoHW::enable(const std::string& bus_name, uint16_t can_id) {
+    auto result = findMotor(bus_name, can_id);
+    if (!result.first || !result.second) return;
+    // 与 Motor_Control::enable_all 一致：cmd 0xFC，id 为 can_id + 当前模式偏移，重发多次确保生效
+    uint16_t frame_id = result.second->GetCanId() + result.second->GetMotorMode();
+    for (int i = 0; i < 5; i++) {
+        result.first->send_control_cmd(frame_id, 0xFC);
+        usleep(2000);
+    }
+    std::cout << "[DamiaoHW] Enabled motor " << can_id << " on " << bus_name << std::endl;
+}
+
+void DamiaoHW::disable(const std::string& bus_name, uint16_t can_id) {
+    auto result = findMotor(bus_name, can_id);
+    if (!result.first || !result.second) return;
+    // 与 Motor_Control::disable_all 一致：cmd 0xFD
+    uint16_t frame_id = result.second->GetCanId() + result.second->GetMotorMode();
+    for (int i = 0; i < 5; i++) {
+        result.first->send_control_cmd(frame_id, 0xFD);
+        usleep(2000);
+    }
+    std::cout << "[DamiaoHW] Disabled motor " << can_id << " on " << bus_name << std::endl;
 }
 
 void DamiaoHW::setZeroPosition(const std::string& bus_name, uint16_t can_id) {
