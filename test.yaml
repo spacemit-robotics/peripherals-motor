@@ -8,7 +8,7 @@ tests:
     timeout_s: 600
     workdir: sdk
     command: |
-      SROBOTIS_CMAKE_EXTRA_ARGS="-DSROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS=drv_can_dm;drv_uart_xl330;drv_uart_feetech;drv_ethercat_jmc" \
+      SROBOTIS_CMAKE_EXTRA_ARGS="-DSROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS=drv_can_dm;drv_uart_xl330;drv_uart_feetech;drv_ethercat_jmc;drv_canopen_jmc" \
         ./build/build.sh --log=verbose package components/peripherals/motor
       bash components/peripherals/motor/tests/test_functional.sh
   - name: motor-manual
@@ -19,4 +19,3 @@ tests:
     workdir: sdk
     command: |
       bash components/peripherals/motor/tests/test_manual.sh
-

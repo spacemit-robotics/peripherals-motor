@@ -67,6 +67,10 @@ test_timeout "test_motor_uart --port /dev/not_exist_port --baud 1000000 --driver
 # - 即使网络不存在或者参数非法，程序也应处理后立刻退出
 test_timeout "test_motor_ecat --nums -1 -c -1" "EtherCAT 非法参数注入"
 
+# 4. canopen
+# - JMC CANopen 输入一个非法 can 口，执行测试程序
+test_timeout "test_motor_canopen_jmc --driver drv_canopen_jmc --if not_exist_can --id 1" "CANopen JMC 非法网口注入"
+
 echo "=========================================="
 if [ $FAILED_TESTS -eq 0 ]; then
     log_info "所有的 $TOTAL_TESTS 个非法注入测试全部通过！"

@@ -50,9 +50,12 @@ run_test_cmd "test_motor_xl330"
 log_info "测试 3/4: UART 舵机测试 (Feetech, 默认串口 /dev/ttyACM0)"
 run_test_cmd "test_motor_uart"
 
-# 4. ethercat
-log_info "测试 4/4: EtherCAT 伺服电机测试 (默认两台电机)"
+log_info "测试 4/5: EtherCAT 伺服电机测试 (默认两台电机)"
 run_test_cmd "test_motor_ecat"
+
+# 5. canopen - JMC
+log_info "测试 5/5: CANopen 电机测试 (JMC, 默认 can0, ID: 1)"
+run_test_cmd "test_motor_canopen_jmc"
 
 echo "=========================================="
 if [[ ${failed_count} -gt 0 ]]; then
