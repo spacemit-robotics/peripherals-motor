@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <string.h>
 #include "../include/motor.h"
 
 static int test_pwm_generic() {
