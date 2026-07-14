@@ -14,7 +14,49 @@ if(NOT DEFINED RUST_TARGET_DIR)
     set(RUST_TARGET_DIR "${CMAKE_INSTALL_PREFIX}/../build/cargo/xl330")
     get_filename_component(RUST_TARGET_DIR "${RUST_TARGET_DIR}" ABSOLUTE)
 endif()
-set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
+set(CARGO_EXECUTABLE "" CACHE FILEPATH "Cargo executable")
+set(SROBOTIS_CARGO_HOME "" CACHE PATH "Cargo home used for SDK builds")
+set(SROBOTIS_CARGO_RUSTC "" CACHE FILEPATH "Rust compiler used by Cargo")
+set(SROBOTIS_CARGO_TARGET "" CACHE STRING "Cargo target triple")
+set(SROBOTIS_CARGO_TARGET_LINKER "" CACHE FILEPATH "Cargo target linker")
+set(SROBOTIS_CARGO_TARGET_AR "" CACHE FILEPATH "Cargo target archiver")
+set(SROBOTIS_RUST_SYSROOT "" CACHE PATH "Rust sysroot containing target rustlib")
+set(SROBOTIS_CARGO_LINK_SYSROOT "" CACHE PATH "Target sysroot passed to the Cargo linker")
+
+if(NOT CARGO_EXECUTABLE OR NOT IS_ABSOLUTE "${CARGO_EXECUTABLE}")
+    set(_srobotis_cargo_names)
+    if(CARGO_EXECUTABLE)
+        list(APPEND _srobotis_cargo_names "${CARGO_EXECUTABLE}")
+    endif()
+    list(APPEND _srobotis_cargo_names cargo cargo-1.91)
+    unset(_SROBOTIS_FOUND_CARGO CACHE)
+    find_program(_SROBOTIS_FOUND_CARGO NAMES ${_srobotis_cargo_names})
+    if(_SROBOTIS_FOUND_CARGO)
+        set(CARGO_EXECUTABLE "${_SROBOTIS_FOUND_CARGO}" CACHE FILEPATH "Cargo executable" FORCE)
+    endif()
+endif()
+if(NOT CARGO_EXECUTABLE)
+    message(FATAL_ERROR "Cargo executable not found. Install cargo/cargo-1.91 or pass -DCARGO_EXECUTABLE=/path/to/cargo.")
+endif()
+
+if(NOT SROBOTIS_CARGO_RUSTC OR NOT IS_ABSOLUTE "${SROBOTIS_CARGO_RUSTC}")
+    set(_srobotis_rustc_names)
+    if(SROBOTIS_CARGO_RUSTC)
+        list(APPEND _srobotis_rustc_names "${SROBOTIS_CARGO_RUSTC}")
+    endif()
+    list(APPEND _srobotis_rustc_names rustc rustc-1.91)
+    unset(_SROBOTIS_FOUND_RUSTC CACHE)
+    find_program(_SROBOTIS_FOUND_RUSTC NAMES ${_srobotis_rustc_names})
+    if(_SROBOTIS_FOUND_RUSTC)
+        set(SROBOTIS_CARGO_RUSTC "${_SROBOTIS_FOUND_RUSTC}" CACHE FILEPATH "Rust compiler used by Cargo" FORCE)
+    endif()
+endif()
+
+if(SROBOTIS_CARGO_TARGET)
+    set(RUST_LIB_PATH "${RUST_TARGET_DIR}/${SROBOTIS_CARGO_TARGET}/release/lib${RUST_LIB_NAME}.a")
+else()
+    set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
+endif()
 
 # Collect Rust source files so CMake re-triggers cargo when they change.
 # Cargo itself handles incremental compilation — only your crate is rebuilt,
@@ -32,13 +74,50 @@ file(GLOB_RECURSE RUST_SOURCES
 # Cargo handles its own fine-grained incrementality internally (~0.1s no-op).
 set(RUST_STAMP_FILE "${RUST_TARGET_DIR}/.build_stamp")
 
+set(_cargo_env CARGO_INCREMENTAL=1)
+if(SROBOTIS_CARGO_HOME)
+    list(APPEND _cargo_env "CARGO_HOME=${SROBOTIS_CARGO_HOME}")
+endif()
+if(SROBOTIS_CARGO_RUSTC)
+    list(APPEND _cargo_env "RUSTC=${SROBOTIS_CARGO_RUSTC}")
+endif()
+if(SROBOTIS_CARGO_TARGET)
+    string(TOUPPER "${SROBOTIS_CARGO_TARGET}" _cargo_target_env)
+    string(REPLACE "-" "_" _cargo_target_env "${_cargo_target_env}")
+    if(SROBOTIS_CARGO_TARGET_LINKER)
+        list(APPEND _cargo_env "CARGO_TARGET_${_cargo_target_env}_LINKER=${SROBOTIS_CARGO_TARGET_LINKER}")
+    endif()
+    if(SROBOTIS_CARGO_TARGET_AR)
+        list(APPEND _cargo_env "CARGO_TARGET_${_cargo_target_env}_AR=${SROBOTIS_CARGO_TARGET_AR}")
+    endif()
+endif()
+set(_cargo_rustflags "")
+if(DEFINED ENV{RUSTFLAGS} AND NOT "$ENV{RUSTFLAGS}" STREQUAL "")
+    list(APPEND _cargo_rustflags "$ENV{RUSTFLAGS}")
+endif()
+if(SROBOTIS_RUST_SYSROOT)
+    list(APPEND _cargo_rustflags "--sysroot=${SROBOTIS_RUST_SYSROOT}")
+endif()
+if(SROBOTIS_CARGO_LINK_SYSROOT)
+    list(APPEND _cargo_rustflags "-C" "link-arg=--sysroot=${SROBOTIS_CARGO_LINK_SYSROOT}")
+endif()
+if(_cargo_rustflags)
+    string(JOIN " " _cargo_rustflags_text ${_cargo_rustflags})
+    list(APPEND _cargo_env "RUSTFLAGS=${_cargo_rustflags_text}")
+endif()
+
+set(_cargo_args build --release --target-dir "${RUST_TARGET_DIR}")
+if(SROBOTIS_CARGO_TARGET)
+    list(APPEND _cargo_args --target "${SROBOTIS_CARGO_TARGET}")
+endif()
+
 add_custom_command(
     OUTPUT "${RUST_STAMP_FILE}"
     # CARGO_INCREMENTAL=1: enable incremental compilation even in release mode.
     # This dramatically speeds up rebuilds when only a few functions change
     # (seconds instead of recompiling the entire crate from scratch).
-    COMMAND ${CMAKE_COMMAND} -E env CARGO_INCREMENTAL=1
-            cargo build --release --target-dir "${RUST_TARGET_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E env ${_cargo_env}
+            "${CARGO_EXECUTABLE}" ${_cargo_args}
     COMMAND ${CMAKE_COMMAND} -E touch "${RUST_STAMP_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     DEPENDS ${RUST_SOURCES}
