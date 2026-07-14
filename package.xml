@@ -3,9 +3,11 @@
   <name>motor</name>
   <version>0.1.0</version>
   <description>Motor control library with pluggable drivers (CAN, PWM, UART) for servos and joint control</description>
-  <system_depend check="dpkg -s libboost-dev">libboost-dev</system_depend>
-  <system_depend check="pkg-config --exists libgpiod">libgpiod-dev</system_depend>
-  <system_depend check="cargo --version">cargo</system_depend>
+  <system_depend>libboost-dev</system_depend>
+  <system_depend check_kind="pkg-config" check_arg="libgpiod">libgpiod-dev</system_depend>
+  <system_depend realm="host" check_kind="command" check_arg="rustc-1.91" option_key="enabled_drivers" option_value="drv_uart_xl330,uart_xl330">rustc-1.91</system_depend>
+  <system_depend realm="host" check_kind="command" check_arg="cargo-1.91" option_key="enabled_drivers" option_value="drv_uart_xl330,uart_xl330">cargo-1.91</system_depend>
+  <system_depend when="cross" realm="target" arch="riscv64" check_kind="file" check_arg="/usr/lib/rust-1.91/lib/rustlib/riscv64a23-unknown-linux-gnu/lib" option_key="enabled_drivers" option_value="drv_uart_xl330,uart_xl330">libstd-rust-1.91-dev</system_depend>
   <export>
     <build_type>cmake</build_type>
   </export>
