@@ -26,6 +26,7 @@ enum motor_mode {
     MOTOR_MODE_CSV,      /* cyclic synchronous velocity */
     MOTOR_MODE_CST,      /* cyclic synchronous torque */
     MOTOR_MODE_HM,       /* homing, return to home position */
+    MOTOR_MODE_OPEN,     /* open-loop voltage control (vel_des as raw speed) */
 };
 
 /*

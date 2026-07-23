@@ -15,15 +15,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Include directories
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    include
+    src
 )
 
 # pwm motor driver paths
-set(PWM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/")
+set(PWM_DRIVER_PATH "src/drivers/")
 
 # CAN DM driver path
-set(CAN_DM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_can_dm")
+set(CAN_DM_DRIVER_PATH "src/drivers/drv_can_dm")
+
+# Benmo M15-2D-133 CAN driver path
+set(CAN_DDT_M152D133_DRIVER_PATH "src/drivers/drv_can_ddt_m152d133")
+
 
 set(_pwm_rohs_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -47,9 +51,17 @@ elseif("drv_can_dm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_d
     set(_can_dm_requested ON)
 endif()
 
+# Decide whether Benmo M15-2D-133 CAN driver is requested:
+set(_can_ddt_m152d133_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_ddt_m152d133_requested ON)
+elseif("drv_can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_ddt_m152d133_requested ON)
+endif()
+
 # Feetech driver paths
-set(FEETECH_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_feetech")
-set(PWM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
+set(FEETECH_DRIVER_PATH "src/drivers/drv_uart_feetech")
+set(PWM_DRIVER_PATH "src/drivers")
 
 # Feetech timestamp debug option
 option(FEETECH_TIMESTAMP_DEBUG "Enable timestamp debug prints in feetech driver" OFF)
@@ -64,7 +76,7 @@ endif()
 
 set(BUILD_FEETECH_DRIVER OFF)
 if(_feetech_requested)
-    if(EXISTS "${FEETECH_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${FEETECH_DRIVER_PATH}")
         set(BUILD_FEETECH_DRIVER ON)
         message(STATUS "Found Feetech driver at: ${FEETECH_DRIVER_PATH}")
 
@@ -96,7 +108,7 @@ endif()
 
 set(BUILD_PWM_ROHS_DRIVER OFF)
 if(_pwm_rohs_requested)
-    if(EXISTS "${PWM_DRIVER_PATH}/drv_pwm_RoHS.c")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${PWM_DRIVER_PATH}/drv_pwm_RoHS.c")
         set(BUILD_PWM_ROHS_DRIVER ON)
         set(PWM_ROHS_SOURCES
             ${PWM_DRIVER_PATH}/drv_pwm_RoHS.c
@@ -108,7 +120,7 @@ endif()
 
 set(BUILD_PWM_GENERIC_DRIVER OFF)
 if(_pwm_generic_requested)
-    if(EXISTS "${PWM_DRIVER_PATH}/drv_pwm_generic.c")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${PWM_DRIVER_PATH}/drv_pwm_generic.c")
         set(BUILD_PWM_GENERIC_DRIVER ON)
         set(PWM_GENERIC_SOURCES
             ${PWM_DRIVER_PATH}/drv_pwm_generic.c
@@ -120,7 +132,7 @@ endif()
 
 set(BUILD_CAN_DM_DRIVER OFF)
 if(_can_dm_requested)
-    if(EXISTS "${CAN_DM_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DM_DRIVER_PATH}")
         set(BUILD_CAN_DM_DRIVER ON)
         message(STATUS "Found CAN DM driver at: ${CAN_DM_DRIVER_PATH}")
 
@@ -140,11 +152,26 @@ if(_can_dm_requested)
     endif()
 endif()
 
+set(BUILD_CAN_DDT_M152D133_DRIVER OFF)
+if(_can_ddt_m152d133_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_M152D133_DRIVER_PATH}")
+        set(BUILD_CAN_DDT_M152D133_DRIVER ON)
+        message(STATUS "Found Benmo M15-2D-133 CAN driver at: ${CAN_DDT_M152D133_DRIVER_PATH}")
+        set(CAN_DDT_M152D133_SOURCES
+            ${CAN_DDT_M152D133_DRIVER_PATH}/src/drv_can_ddt_m152d133.cpp
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${CAN_DDT_M152D133_DRIVER_PATH}")
+            message(WARNING "Benmo M15-2D-133 CAN driver requested but not found at: ${CAN_DDT_M152D133_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
 # ECAT JMC driver path
-set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_jmc")
+set(ECAT_JMC_DRIVER_PATH "src/drivers/drv_ethercat_jmc")
 
 # UART XL330 driver path
-set(UART_XL330_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_xl330")
+set(UART_XL330_DRIVER_PATH "src/drivers/drv_uart_xl330")
 
 # Find ethercat library (IgH EtherCAT Master).
 # Rely on CMAKE_PREFIX_PATH (set by build system) for portable resolution.
@@ -200,7 +227,7 @@ if(_ecat_jmc_requested)
 endif()
 
 # CANOpen JMC driver path
-set(CANOPEN_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_canopen_jmc")
+set(CANOPEN_JMC_DRIVER_PATH "src/drivers/drv_canopen_jmc")
 
 # Decide whether CANOpen JMC is requested:
 set(_canopen_jmc_requested OFF)
@@ -212,7 +239,7 @@ endif()
 
 set(BUILD_CANOPEN_JMC_DRIVER OFF)
 if(_canopen_jmc_requested)
-    if(EXISTS "${CANOPEN_JMC_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CANOPEN_JMC_DRIVER_PATH}")
         set(BUILD_CANOPEN_JMC_DRIVER ON)
         message(STATUS "Found CANOpen JMC driver at: ${CANOPEN_JMC_DRIVER_PATH}")
 
@@ -239,7 +266,7 @@ endif()
 
 set(BUILD_UART_XL330_DRIVER OFF)
 if(_uart_xl330_requested)
-    if(EXISTS "${UART_XL330_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_XL330_DRIVER_PATH}")
         set(BUILD_UART_XL330_DRIVER ON)
         message(STATUS "Found UART XL330 driver at: ${UART_XL330_DRIVER_PATH}")
         set(UART_XL330_SOURCES ${UART_XL330_DRIVER_PATH}/src/drv_uart_xl330.c)
@@ -249,12 +276,7 @@ if(_uart_xl330_requested)
         set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/../cargo/xl330" CACHE PATH
             "Cargo target directory for XL330 Rust driver (persistent across cmake clean)")
         get_filename_component(RUST_TARGET_DIR "${RUST_TARGET_DIR}" ABSOLUTE)
-        set(SROBOTIS_CARGO_TARGET "" CACHE STRING "Cargo target triple for cross compiling XL330 Rust driver")
-        if(SROBOTIS_CARGO_TARGET)
-            set(RUST_LIB_PATH "${RUST_TARGET_DIR}/${SROBOTIS_CARGO_TARGET}/release/lib${RUST_LIB_NAME}.a")
-        else()
-            set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
-        endif()
+        set(RUST_LIB_PATH "${RUST_TARGET_DIR}/release/lib${RUST_LIB_NAME}.a")
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         if(NOT EXISTS "${UART_XL330_DRIVER_PATH}")
             message(WARNING "UART XL330 driver requested but not found at: ${UART_XL330_DRIVER_PATH}")
@@ -301,6 +323,13 @@ if(BUILD_CAN_DM_DRIVER)
     # Suppress warnings for CAN DM driver
     set_source_files_properties(${CAN_DM_SOURCES} PROPERTIES
         COMPILE_FLAGS "-Wno-reorder -Wno-unused-value -Wno-missing-field-initializers -Wno-type-limits"
+    )
+endif()
+
+# Add Benmo M15-2D-133 CAN motor driver if available
+if(BUILD_CAN_DDT_M152D133_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CAN_DDT_M152D133_SOURCES}
     )
 endif()
 
@@ -522,8 +551,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_uart tests/test_motor_uart.c)
         set_target_properties(test_motor_uart PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_uart PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
         )
         target_link_libraries(test_motor_uart
             -Wl,--whole-archive
@@ -539,7 +568,7 @@ if(BUILD_TESTS)
         add_executable(test_motor_pwm tests/test_motor_pwm.c)
         set_target_properties(test_motor_pwm PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_pwm PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
         target_link_libraries(test_motor_pwm
             -Wl,--whole-archive
@@ -556,8 +585,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_can tests/test_motor_can.c)
         set_target_properties(test_motor_can PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_can PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
             ${CAN_DM_DRIVER_PATH}/include
         )
         target_link_libraries(test_motor_can
@@ -568,13 +597,82 @@ if(BUILD_TESTS)
         )
         install(TARGETS test_motor_can RUNTIME DESTINATION bin)
     endif()
-    
+
+    # Add Benmo M15-2D-133 CAN motor test if driver is built
+    if(BUILD_CAN_DDT_M152D133_DRIVER)
+        # 常规测试用例（tests/ 目录），随驱动使能默认编译
+        add_executable(test_motor_can_ddt_m152d133 tests/test_motor_can_ddt_m152d133.c)
+        set_target_properties(test_motor_can_ddt_m152d133 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_can_ddt_m152d133 PRIVATE
+            include
+            src
+            ${CAN_DDT_M152D133_DRIVER_PATH}/include
+        )
+        target_link_libraries(test_motor_can_ddt_m152d133
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_can_ddt_m152d133 RUNTIME DESTINATION bin)
+
+        # 驱动目录内部测试用例（src/drivers/drv_can_ddt_m152d133/test/），默认不编译
+        # 需要时显式打开：cmake -DBUILD_M152D133_EXTRA_TESTS=ON ...
+        option(BUILD_M152D133_EXTRA_TESTS "Build extra M152D133 driver tests" OFF)
+        if(BUILD_M152D133_EXTRA_TESTS)
+            add_executable(test_m152d133 ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133.cpp)
+            set_target_properties(test_m152d133 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133 PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+                ${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133 RUNTIME DESTINATION bin)
+
+            add_executable(test_m152d133_calibrate ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133_calibrate.cpp)
+            set_target_properties(test_m152d133_calibrate PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133_calibrate PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+                ${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133_calibrate
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133_calibrate RUNTIME DESTINATION bin)
+
+            add_executable(test_m152d133_passive ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133_passive.cpp)
+            set_target_properties(test_m152d133_passive PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133_passive PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+                ${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133_passive
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133_passive RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
     # Add ECAT motor test if driver is built
     if(BUILD_ECAT_JMC_DRIVER)
         add_executable(test_motor_ecat tests/test_motor_ecat.c)
         set_target_properties(test_motor_ecat PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_ecat PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
 
         target_link_libraries(test_motor_ecat
@@ -592,7 +690,7 @@ if(BUILD_TESTS)
         add_executable(test_motor_canopen_jmc tests/test_motor_canopen_jmc.c)
         set_target_properties(test_motor_canopen_jmc PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_canopen_jmc PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
         target_link_libraries(test_motor_canopen_jmc
             -Wl,--whole-archive
@@ -608,8 +706,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_xl330 tests/test_uart_xl330.c)
         set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_xl330 PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
         )
         target_link_libraries(test_motor_xl330
             -Wl,--whole-archive
