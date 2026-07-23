@@ -192,6 +192,32 @@ if(_can_ddt_p1010b_requested)
     endif()
 endif()
 
+# UART DDT M603C111 driver path
+set(UART_DDT_M603C111_DRIVER_PATH "src/drivers/drv_uart_ddt_m603c111")
+
+# Decide whether UART DDT M603C111 is requested:
+set(_uart_ddt_m603c111_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_uart_ddt_m603c111_requested ON)
+elseif("drv_uart_ddt_m603c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "uart_ddt_m603c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_ddt_m603c111_requested ON)
+endif()
+
+set(BUILD_UART_DDT_M603C111_DRIVER OFF)
+if(_uart_ddt_m603c111_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_DDT_M603C111_DRIVER_PATH}")
+        set(BUILD_UART_DDT_M603C111_DRIVER ON)
+        message(STATUS "Found UART DDT M603C111 driver at: ${UART_DDT_M603C111_DRIVER_PATH}")
+        set(UART_DDT_M603C111_SOURCES
+            ${UART_DDT_M603C111_DRIVER_PATH}/src/drv_uart_ddt_m603c111.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${UART_DDT_M603C111_DRIVER_PATH}")
+            message(WARNING "UART DDT M603C111 driver requested but not found at: ${UART_DDT_M603C111_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
 # ECAT JMC driver path
 set(ECAT_JMC_DRIVER_PATH "src/drivers/drv_ethercat_jmc")
 
@@ -362,6 +388,13 @@ endif()
 if(BUILD_CAN_DDT_P1010B_DRIVER)
     list(APPEND MOTOR_DRIVER_SOURCES
         ${CAN_DDT_P1010B_SOURCES}
+    )
+endif()
+
+# Add UART DDT M603C111 motor driver if available
+if(BUILD_UART_DDT_M603C111_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${UART_DDT_M603C111_SOURCES}
     )
 endif()
 
@@ -758,6 +791,106 @@ if(BUILD_TESTS)
             pthread
         )
         install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
+    endif()
+
+    # Add RS485 DDT M0601C111 motor test if driver is built
+    if(BUILD_UART_485_DDT_M601C111_DRIVER)
+        add_executable(test_m601c ${UART_485_DDT_M601C111_DRIVER_PATH}/test_m601c.c)
+        set_target_properties(test_m601c PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_m601c PRIVATE
+            include
+            src
+        )
+        target_link_libraries(test_m601c
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_m601c RUNTIME DESTINATION bin)
+    endif()
+
+    # Add P1010A CAN motor test if driver is built
+    if(BUILD_CAN_DDT_P1010A_DRIVER)
+        add_executable(test_p1010a ${CAN_DDT_P1010A_DRIVER_PATH}/test/test_p1010a.cpp)
+        set_target_properties(test_p1010a PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_p1010a PRIVATE
+            include
+            src
+        )
+        target_link_libraries(test_p1010a
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_p1010a RUNTIME DESTINATION bin)
+    endif()
+
+
+
+    # Add M0603C UART motor test if driver is built
+    if(BUILD_UART_DDT_M603C111_DRIVER)
+        # 常规测试用例（tests/ 目录），随驱动使能默认编译
+        add_executable(test_motor_uart_ddt_m603c111 tests/test_motor_uart_ddt_m603c111.c)
+        set_target_properties(test_motor_uart_ddt_m603c111 PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_uart_ddt_m603c111 PRIVATE
+            include
+        )
+        target_link_libraries(test_motor_uart_ddt_m603c111
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_uart_ddt_m603c111 RUNTIME DESTINATION bin)
+
+        # 驱动目录内部测试用例（src/drivers/drv_uart_ddt_m603c111/test/），默认不编译
+        # 需要时显式打开：cmake -DBUILD_M603C111_EXTRA_TESTS=ON ...
+        option(BUILD_M603C111_EXTRA_TESTS "Build extra M0603C111 driver tests" OFF)
+        if(BUILD_M603C111_EXTRA_TESTS)
+            add_executable(test_m603c ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c.c)
+            set_target_properties(test_m603c PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c RUNTIME DESTINATION bin)
+
+            add_executable(test_m603c_pos ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c_pos.c)
+            set_target_properties(test_m603c_pos PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c_pos PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c_pos
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c_pos RUNTIME DESTINATION bin)
+
+            add_executable(test_state ${UART_DDT_M603C111_DRIVER_PATH}/test/test_state.c)
+            set_target_properties(test_state PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_state PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_state
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_state RUNTIME DESTINATION bin)
+        endif()
     endif()
 
     # Add CANOpen JMC motor test if driver is built
