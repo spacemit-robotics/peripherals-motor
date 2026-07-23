@@ -28,6 +28,8 @@ set(CAN_DM_DRIVER_PATH "src/drivers/drv_can_dm")
 # Benmo M15-2D-133 CAN driver path
 set(CAN_DDT_M152D133_DRIVER_PATH "src/drivers/drv_can_ddt_m152d133")
 
+# P1010B CAN driver path
+set(CAN_DDT_P1010B_DRIVER_PATH "src/drivers/drv_can_ddt_p1010b")
 
 set(_pwm_rohs_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -57,6 +59,14 @@ if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
     set(_can_ddt_m152d133_requested ON)
 elseif("drv_can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
     set(_can_ddt_m152d133_requested ON)
+endif()
+
+# Decide whether P1010B CAN driver is requested:
+set(_can_ddt_p1010b_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_ddt_p1010b_requested ON)
+elseif("drv_can_ddt_p1010b" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_p1010b" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_ddt_p1010b_requested ON)
 endif()
 
 # Feetech driver paths
@@ -163,6 +173,21 @@ if(_can_ddt_m152d133_requested)
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         if(NOT EXISTS "${CAN_DDT_M152D133_DRIVER_PATH}")
             message(WARNING "Benmo M15-2D-133 CAN driver requested but not found at: ${CAN_DDT_M152D133_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
+set(BUILD_CAN_DDT_P1010B_DRIVER OFF)
+if(_can_ddt_p1010b_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_P1010B_DRIVER_PATH}")
+        set(BUILD_CAN_DDT_P1010B_DRIVER ON)
+        message(STATUS "Found P1010B CAN driver at: ${CAN_DDT_P1010B_DRIVER_PATH}")
+        set(CAN_DDT_P1010B_SOURCES
+            ${CAN_DDT_P1010B_DRIVER_PATH}/src/drv_can_ddt_p1010b.cpp
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${CAN_DDT_P1010B_DRIVER_PATH}")
+            message(WARNING "P1010B CAN driver requested but not found at: ${CAN_DDT_P1010B_DRIVER_PATH}")
         endif()
     endif()
 endif()
@@ -330,6 +355,13 @@ endif()
 if(BUILD_CAN_DDT_M152D133_DRIVER)
     list(APPEND MOTOR_DRIVER_SOURCES
         ${CAN_DDT_M152D133_SOURCES}
+    )
+endif()
+
+# Add P1010B CAN motor driver if available
+if(BUILD_CAN_DDT_P1010B_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CAN_DDT_P1010B_SOURCES}
     )
 endif()
 
@@ -664,6 +696,49 @@ if(BUILD_TESTS)
                 pthread
             )
             install(TARGETS test_m152d133_passive RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
+    # Add P1010B CAN motor test if driver is built
+    if(BUILD_CAN_DDT_P1010B_DRIVER)
+        add_executable(test_motor_can_ddt_p1010b tests/test_motor_can_ddt_p1010b.c)
+        set_target_properties(test_motor_can_ddt_p1010b PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_can_ddt_p1010b PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        target_link_libraries(test_motor_can_ddt_p1010b
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_can_ddt_p1010b RUNTIME DESTINATION bin)
+
+        # 驱动目录内部测试用例（src/drivers/drv_can_ddt_p1010b/test/），默认不编译
+        # 需要时显式打开：cmake -DBUILD_P1010B_EXTRA_TESTS=ON ...
+        option(BUILD_P1010B_EXTRA_TESTS "Build extra P1010B driver tests" OFF)
+        if(BUILD_P1010B_EXTRA_TESTS)
+            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_P1010B_DRIVER_PATH}/test")
+                file(GLOB P1010B_TEST_SOURCES "${CAN_DDT_P1010B_DRIVER_PATH}/test/*.cpp" "${CAN_DDT_P1010B_DRIVER_PATH}/test/*.c")
+                foreach(test_src ${P1010B_TEST_SOURCES})
+                    get_filename_component(test_name ${test_src} NAME_WE)
+                    add_executable(${test_name} ${test_src})
+                    set_target_properties(${test_name} PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+                    target_include_directories(${test_name} PRIVATE
+                        ${CMAKE_CURRENT_SOURCE_DIR}/include
+                        ${CMAKE_CURRENT_SOURCE_DIR}/src
+                        ${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_P1010B_DRIVER_PATH}/include
+                    )
+                    target_link_libraries(${test_name}
+                        -Wl,--whole-archive
+                        motor
+                        -Wl,--no-whole-archive
+                        pthread
+                    )
+                    install(TARGETS ${test_name} RUNTIME DESTINATION bin)
+                endforeach()
+            endif()
         endif()
     endif()
 
