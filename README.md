@@ -17,9 +17,15 @@
     | --- | --- |
     | `include/motor.h` | 统一的对外 API 头文件 |
     | `src/motor_core.c` | 电机管理核心逻辑与工厂函数 |
+    | `src/drivers/drv_485_ddt_m601c111/` | 本末 M0601C111 RS485 电机驱动实现 |
+    | `src/drivers/drv_can_ddt_m152d133/` | 本末 M152D133 CAN 电机驱动实现 |
+    | `src/drivers/drv_can_ddt_p1010b/` | 本末 P1010B CAN 电机驱动实现 |
     | `src/drivers/drv_can_dm/` | 达妙 CAN 电机驱动实现 |
     | `src/drivers/drv_canopen_jmc/` | JMC CANOpen 电机驱动实现 |
     | `src/drivers/drv_ethercat_jmc/` | JMC EtherCAT 电机驱动实现 |
+    | `src/drivers/drv_pwm_generic.c` | 通用 PWM 电机驱动实现 |
+    | `src/drivers/drv_pwm_RoHS.c` | RoHS PWM 电机驱动实现 |
+    | `src/drivers/drv_uart_ddt_m603c111/` | 本末 M0603C UART 电机驱动实现 |
     | `src/drivers/drv_uart_feetech/` | Feetech UART 舵机驱动实现 |
     | `src/drivers/drv_uart_xl330/` | Reachy Mini xl330 电机驱动实现 |
     | `tests/` | 各类电机的功能测试代码 |
@@ -97,7 +103,7 @@ target/k3-humanoid-go1.json
     "components/peripherals/motor"
   ],
   "enabled_package_options": {
-    "components/peripherals/motor": { "enabled_drivers": ["drv_uart_rm","drv_uart_feetech"] }
+    "components/peripherals/motor": { "enabled_drivers": ["drv_uart_xl330","drv_uart_feetech"] }
   },
   "options": {
     "parallel_jobs": 4,
@@ -125,31 +131,64 @@ test_motor_pwm
 ### 3.2 【CAN 电机测试】
 
 **前置**：
-1. 硬件：完成与达妙（Damiao）电机的 CAN 连接，确认总线速率为 1Mbps
+1. 硬件：完成开发板与电机的 CAN 连接，确认电机通信速率
 ![达妙电机接线图](assets/motor_can.png)
 
 
-2. 软件：执行
+- 达妙：DM-J4310 CAN 电机、48V电源、电源（含 CAN 通信端子）连接线：XT30(2+2)-F 插头连接线×1
+
+- [本末：M152D133 CAN 电机](src/drivers/drv_can_ddt_m152d133/README.md)、24V电源
+![](assets/m15.jpg)
+电机的 can_h、can_l 分别与开发板的 can_h、can_l 相连
+
+- [本末：P1010B CAN 电机](src/drivers/drv_can_ddt_p1010b/README.md)、24V电源、电源连接线 XT30PW-M、信号连接线 GH1.25-2PWBPZ×1
+![](assets/p1010b.jpg)
+电机的 can_h、can_l 分别与开发板的 can_h、can_l 相连
+
+2. 软件：设置总线通信速率，匹配目标电机
     ```
     sudo ip link set can0 up type can bitrate 1000000。
     ```
 
 **步骤 1**：运行示例程序。
 ```bash
-# 默认测试 ID 为 0x02 的电机
+# 达妙 J4310 CAN 电机（默认测试 ID 为 0x02 的电机
 test_motor_can --driver drv_can_dm --if can0 --id 0x02
+
+# 本末 M152D133 CAN 电机
+test_motor_can_ddt_m152d133
+
+# 本末 P1010B CAN 电机 (注意：该程序验证多模式切换，受组帧机制限制，需注意制动和单参数配置约束)
+test_motor_can_ddt_p1010b
 ```
 
 **步骤 2**：预期现象。
 - 终端实时打印电机的 `pos` (rad)、`vel` (rad/s) 和 `trq` (Nm) 数据。
-- 电机执行往复运动指令。
+- 电机平滑运动。
+
+
 
 ---
 
 ### 3.3 【UART 舵机/电机测试】
 
 **前置**：
-1. 硬件：feetech - [总线舵机驱动板](https://e.tb.cn/h.7Hmq4ScRufPu6im?tk=8s8nU8U1DSh)
+1. 硬件：
+- feetech - [总线舵机驱动板](https://e.tb.cn/h.7Hmq4ScRufPu6im?tk=8s8nU8U1DSh)
+
+- [本末 M0603C UART 电机](src/drivers/drv_uart_ddt_m603c111/README.md)、14.4V电源、USB-TTL、电源&信号连接线 1.5T-1-4Y
+![](assets/603.jpg)
+电机的 RX 和 TX 分别与 USB转 TTL 模块的 RX 和 TX 连接,注意两者的 RX、TX 需交错连接，即电机 RX 接模块 TX，电机 TX 接模块 RX；另外 USB 转 TTL 模块的 GND 需和电源负极相连，即 USB 转 TTL 模块和电机共地
+![](assets/uart_wiring_diagram.png)
+接线端子序号
+![](assets/603_con.jpg)
+
+- [本末 M0601C111 RS485 电机](src/drivers/drv_485_ddt_m601c111/README.md)、18V电源、电源连接线 XH2.54*2P、信号连接线 ZH1.5*4P、USB-485 模块
+![](assets/601.jpg)
+USB-485 A、B 分别与本末电机 信号线 ZH1.5*4P 的 A、B 相连，
+接线端子序号如图
+![](assets/601_con.jpg)
+
 
 2. 连接 Feetech 或 Dynamixel (XL/XC) 电机至串口（如 `/dev/ttyACM0`），确认权限。
 
@@ -164,8 +203,18 @@ test_motor_uart /dev/ttyACM0 1000000 drv_uart_feetech 1
 test_uart_xl330 /dev/ttyACM0 # 默认测试 ID 为 10（机器人 body-yaw） 的电机
 ```
 
-**步骤 3**：预期现象。
-- 舵机转动至目标角度并反馈实时位置。
+**步骤 3**：本末 (DDT) 串口电机测试。
+```bash
+# 本末 M0603C UART 电机（建议使用 ID=1）
+# 警告：位置模式长期运行会存在积分漂移现象，请避免直接从开环/速度环切回位置环，必要时应重启。
+test_motor_uart_ddt_m603c111 /dev/ttyUSB0
+
+# 本末 M0601C111 RS485 电机（最高 500Hz 通信，一问一答）
+test_motor_485_ddt_m601c111 /dev/ttyUSB0 1
+```
+
+**步骤 4**：预期现象。
+- 舵机/电机转动至目标角度并反馈实时位置。
 
 ---
 
@@ -361,8 +410,12 @@ struct motor_state {
 | 类型 | 电机型号 | 对应驱动名称 | 备注 |
 | --- | --- | --- | --- |
 | **CAN** | 达妙 DM-J4310-2EC / DM4310 | `drv_can_dm` | 推荐使用 MIT 模式 |
-| **CAN** | JMC CANOpen 伺服系列 | `drv_canopen_jmc` | 状态机自动托管，支持 PP/PV/HM |
+| **CAN** | JMC CANOpen 伺服 | `drv_canopen_jmc` | 状态机自动托管，支持 PP/PV/HM |
+| **CAN** | [本末 M152D133](src/drivers/drv_can_ddt_m152d133/README.md)  | `drv_can_ddt_m152d133` | 自动解算多圈位置，支持 PI 调节与反馈周期设置 |
+| **CAN** | [本末 P1010B](src/drivers/drv_can_ddt_p1010b/README.md)  | `drv_can_ddt_p1010b` | 组帧机制(一帧控多电机)，需注意制动及参数写入逻辑 |
 | **EtherCAT** | JMC IHSS42-EC | `drv_ethercat_jmc` | 集成式步进伺服 |
-| **UART** | Feetech STS3215 系列 | `drv_uart_feetech` | 智能舵机 |
+| **UART** | Feetech STS3215  | `drv_uart_feetech` | 智能舵机 |
 | **UART** | Dynamixel XL330 / XC330 | `drv_uart_xl330` | Reachy Mini 专用，含 python 绑定 |
+| **UART** | [本末 M0603C](src/drivers/drv_uart_ddt_m603c111/README.md)  | `drv_uart_ddt_m603c111` | 自带安全保护阈值，需注意位置积分漂移与归位反转风险 |
+| **RS485** | [本末 M0601C111](src/drivers/drv_485_ddt_m601c111/README.md)  | `drv_485_ddt_m601c111` | 一问一答最高 500Hz，提供电流/速度/位置环控制 |
 | **PWM** | 通用步进电机/直流电机 | `drv_pwm_demo` / `drv_pwm_RoHS` | 需 GPIO/PWM 硬件支持 |
