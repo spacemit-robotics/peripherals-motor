@@ -48,6 +48,9 @@
 #include <net/if.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
+#include <map>
+#include <string>
+#include <mutex>
 
 extern "C" {
 #include "../../../../include/motor.h"
@@ -109,6 +112,20 @@ struct bm_priv {
     int32_t pos_turns;        /* Accumulated full turns (positive or negative) */
     bool have_last_pos_raw;   /* Whether last_pos_raw is valid */
 };
+
+struct BusState {
+    uint8_t modes[8];
+    int16_t setpoints[8];
+    BusState() {
+        for (int i = 0; i < 8; ++i) {
+            modes[i] = 0xFF; // Default to ignore/disable
+            setpoints[i] = 0;
+        }
+    }
+};
+
+static std::map<std::string, BusState> g_bus_states;
+static std::mutex g_bus_mutex;
 
 static int32_t clamp_i32(int32_t value, int32_t lo, int32_t hi) {
     if (value < lo) return lo;
@@ -236,15 +253,28 @@ static int bm_recv_id(struct bm_priv* priv, uint32_t want_id, struct can_frame* 
 /* --- control frames --- */
 
 static int bm_send_mode(struct bm_priv* priv, uint8_t mode_value) {
-    uint8_t data[8] = {0};
-    data[priv->can_id - 1] = mode_value;
+    std::lock_guard<std::mutex> lock(g_bus_mutex);
+    BusState& bs = g_bus_states[priv->bus_name];
+    bs.modes[priv->can_id - 1] = mode_value;
+
+    uint8_t data[8];
+    for (int i = 0; i < 8; ++i) {
+        data[i] = bs.modes[i];
+    }
     return bm_send_frame(priv->can_fd, kIdSetMode, data, 8);
 }
 
 static int bm_send_setpoint(struct bm_priv* priv, int16_t raw_value) {
+    std::lock_guard<std::mutex> lock(g_bus_mutex);
+    BusState& bs = g_bus_states[priv->bus_name];
+    bs.setpoints[priv->can_id - 1] = raw_value;
+
     uint8_t data[8] = {0};
-    uint32_t slot = static_cast<uint32_t>((priv->can_id - 1) % 4);
-    put_be16(&data[slot * 2], raw_value);
+    int base_idx = (priv->can_id <= 4) ? 0 : 4;
+    for (int i = 0; i < 4; ++i) {
+        put_be16(&data[i * 2], bs.setpoints[base_idx + i]);
+    }
+
     uint32_t frame_id = (priv->can_id <= 4) ? 0x32u : 0x33u;
     return bm_send_frame(priv->can_fd, frame_id, data, 8);
 }
@@ -411,6 +441,8 @@ static int bm_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
         if (mode_value != kModeDisable && priv->active_mode != kModeDisable && mode_value != priv->active_mode) {
             /* Switching between different active loops (e.g. Vel -> Pos) requires a disable first. */
             (void)bm_send_mode(priv, kModeDisable);
+            priv->active_mode = kModeDisable;
+            priv->enabled = false;
             usleep(50000);
         }
 

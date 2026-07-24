@@ -437,7 +437,12 @@ static int p1010b_set_paras(struct motor_dev *dev, const void *address, const vo
     if (!dev || !dev->priv_data || !address || !data || data_len != 4) return -1;
     struct p1010b_priv* priv = static_cast<struct p1010b_priv*>(dev->priv_data);
 
-    uint8_t param_idx = *static_cast<const uint8_t*>(address);
+    uint8_t param_idx;
+    if (reinterpret_cast<uintptr_t>(address) < 0x1000) {
+        param_idx = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(address));
+    } else {
+        param_idx = *static_cast<const uint8_t*>(address);
+    }
     uint32_t val = *static_cast<const uint32_t*>(data);
 
     uint8_t frame_data[8] = {0};
@@ -457,7 +462,12 @@ static int p1010b_get_paras(struct motor_dev* dev, const void* address, void* ou
     if (!dev || !dev->priv_data || !address || !out_data || out_len != 2) return -1;
     struct p1010b_priv* priv = static_cast<struct p1010b_priv*>(dev->priv_data);
 
-    uint8_t code = *static_cast<const uint8_t*>(address);
+    uint8_t code;
+    if (reinterpret_cast<uintptr_t>(address) < 0x1000) {
+        code = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(address));
+    } else {
+        code = *static_cast<const uint8_t*>(address);
+    }
     uint8_t query_data[8] = {code, 0, 0, 0, 0, 0, 0, 0};
 
     if (p1010b_send_frame(priv->can_fd, 0x35, query_data, 8) < 0) return -1;

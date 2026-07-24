@@ -229,8 +229,8 @@ static int m0603c_get_state(struct motor_dev *dev, struct motor_state *state) {
 
     if (priv->has_74) {
         if (crc8_maxim(priv->rx_74_buf, 9) == priv->rx_74_buf[9] && priv->rx_74_buf[1] == 0x74) {
-            int32_t turns = (int32_t)((priv->rx_74_buf[2] << 24) | (priv->rx_74_buf[3] << 16) |
-                (priv->rx_74_buf[4] << 8) | priv->rx_74_buf[5]);
+            int32_t turns = (int32_t)(((uint32_t)priv->rx_74_buf[2] << 24) | ((uint32_t)priv->rx_74_buf[3] << 16) |
+                ((uint32_t)priv->rx_74_buf[4] << 8) | (uint32_t)priv->rx_74_buf[5]);
             uint16_t pos_raw = (uint16_t)((priv->rx_74_buf[6] << 8) | priv->rx_74_buf[7]);
 
             priv->turns = turns; // Save decoded turns
