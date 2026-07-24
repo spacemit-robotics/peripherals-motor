@@ -15,15 +15,31 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Include directories
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    include
+    src
 )
 
 # pwm motor driver paths
-set(PWM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/")
+set(PWM_DRIVER_PATH "src/drivers/")
 
 # CAN DM driver path
-set(CAN_DM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_can_dm")
+set(CAN_DM_DRIVER_PATH "src/drivers/drv_can_dm")
+
+# Benmo M15-2D-133 CAN driver path
+set(CAN_DDT_M152D133_DRIVER_PATH "src/drivers/drv_can_ddt_m152d133")
+
+# RS485 DDT M0601C111 driver path
+set(UART_485_DDT_M601C111_DRIVER_PATH "src/drivers/drv_485_ddt_m601c111")
+
+# CAN DDT P1010A driver path
+set(CAN_DDT_P1010A_DRIVER_PATH "src/drivers/drv_can_ddt_p1010a")
+
+# CAN DDT P1010B driver path
+set(CAN_DDT_P1010B_DRIVER_PATH "src/drivers/drv_can_ddt_p1010b")
+
+# UART DDT M0603C111 driver path
+set(UART_DDT_M603C111_DRIVER_PATH "src/drivers/drv_uart_ddt_m603c111")
+
 
 set(_pwm_rohs_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -47,9 +63,50 @@ elseif("drv_can_dm" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_d
     set(_can_dm_requested ON)
 endif()
 
+# Decide whether Benmo M15-2D-133 CAN driver is requested:
+set(_can_ddt_m152d133_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_ddt_m152d133_requested ON)
+elseif("drv_can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_m152d133" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_ddt_m152d133_requested ON)
+endif()
+
+# Decide whether RS485 DDT M0601C111 driver is requested:
+set(_uart_485_ddt_m601c111_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_uart_485_ddt_m601c111_requested ON)
+elseif("drv_485_ddt_m601c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "485_ddt_m601c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_485_ddt_m601c111_requested ON)
+endif()
+
+
+# Decide whether P1010A CAN driver is requested:
+set(_can_ddt_p1010a_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_ddt_p1010a_requested ON)
+elseif("drv_can_ddt_p1010a" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_p1010a" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_ddt_p1010a_requested ON)
+endif()
+
+# Decide whether P1010B CAN driver is requested:
+set(_can_ddt_p1010b_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_ddt_p1010b_requested ON)
+elseif("drv_can_ddt_p1010b" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "can_ddt_p1010b" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_ddt_p1010b_requested ON)
+endif()
+
+# Decide whether M0603C UART driver is requested:
+set(_uart_ddt_m603c111_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_uart_ddt_m603c111_requested ON)
+elseif("drv_uart_ddt_m603c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "uart_ddt_m603c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_ddt_m603c111_requested ON)
+endif()
+
 # Feetech driver paths
-set(FEETECH_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_feetech")
-set(PWM_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
+set(FEETECH_DRIVER_PATH "src/drivers/drv_uart_feetech")
+set(PWM_DRIVER_PATH "src/drivers")
 
 # Feetech timestamp debug option
 option(FEETECH_TIMESTAMP_DEBUG "Enable timestamp debug prints in feetech driver" OFF)
@@ -64,7 +121,7 @@ endif()
 
 set(BUILD_FEETECH_DRIVER OFF)
 if(_feetech_requested)
-    if(EXISTS "${FEETECH_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${FEETECH_DRIVER_PATH}")
         set(BUILD_FEETECH_DRIVER ON)
         message(STATUS "Found Feetech driver at: ${FEETECH_DRIVER_PATH}")
 
@@ -96,7 +153,7 @@ endif()
 
 set(BUILD_PWM_ROHS_DRIVER OFF)
 if(_pwm_rohs_requested)
-    if(EXISTS "${PWM_DRIVER_PATH}/drv_pwm_RoHS.c")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${PWM_DRIVER_PATH}/drv_pwm_RoHS.c")
         set(BUILD_PWM_ROHS_DRIVER ON)
         set(PWM_ROHS_SOURCES
             ${PWM_DRIVER_PATH}/drv_pwm_RoHS.c
@@ -108,7 +165,7 @@ endif()
 
 set(BUILD_PWM_GENERIC_DRIVER OFF)
 if(_pwm_generic_requested)
-    if(EXISTS "${PWM_DRIVER_PATH}/drv_pwm_generic.c")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${PWM_DRIVER_PATH}/drv_pwm_generic.c")
         set(BUILD_PWM_GENERIC_DRIVER ON)
         set(PWM_GENERIC_SOURCES
             ${PWM_DRIVER_PATH}/drv_pwm_generic.c
@@ -120,7 +177,7 @@ endif()
 
 set(BUILD_CAN_DM_DRIVER OFF)
 if(_can_dm_requested)
-    if(EXISTS "${CAN_DM_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DM_DRIVER_PATH}")
         set(BUILD_CAN_DM_DRIVER ON)
         message(STATUS "Found CAN DM driver at: ${CAN_DM_DRIVER_PATH}")
 
@@ -140,11 +197,81 @@ if(_can_dm_requested)
     endif()
 endif()
 
+set(BUILD_CAN_DDT_M152D133_DRIVER OFF)
+if(_can_ddt_m152d133_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_M152D133_DRIVER_PATH}")
+        set(BUILD_CAN_DDT_M152D133_DRIVER ON)
+        message(STATUS "Found Benmo M15-2D-133 CAN driver at: ${CAN_DDT_M152D133_DRIVER_PATH}")
+        set(CAN_DDT_M152D133_SOURCES
+            ${CAN_DDT_M152D133_DRIVER_PATH}/src/drv_can_ddt_m152d133.cpp
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${CAN_DDT_M152D133_DRIVER_PATH}")
+            message(WARNING "Benmo M15-2D-133 CAN driver requested but not found at: ${CAN_DDT_M152D133_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
+set(BUILD_UART_485_DDT_M601C111_DRIVER OFF)
+if(_uart_485_ddt_m601c111_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_485_DDT_M601C111_DRIVER_PATH}")
+        set(BUILD_UART_485_DDT_M601C111_DRIVER ON)
+        message(STATUS "Found RS485 DDT M0601C111 driver at: ${UART_485_DDT_M601C111_DRIVER_PATH}")
+        set(UART_485_DDT_M601C111_SOURCES
+            ${UART_485_DDT_M601C111_DRIVER_PATH}/src/drv_485_ddt_m601c.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        if(NOT EXISTS "${UART_485_DDT_M601C111_DRIVER_PATH}")
+            message(WARNING "RS485 DDT M0601C111 driver requested but not found at: ${UART_485_DDT_M601C111_DRIVER_PATH}")
+        endif()
+    endif()
+endif()
+
+
+set(BUILD_CAN_DDT_P1010A_DRIVER OFF)
+if(_can_ddt_p1010a_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_P1010A_DRIVER_PATH}")
+        set(BUILD_CAN_DDT_P1010A_DRIVER ON)
+        message(STATUS "Found P1010A CAN driver at: ${CAN_DDT_P1010A_DRIVER_PATH}")
+        set(CAN_DDT_P1010A_SOURCES
+            ${CAN_DDT_P1010A_DRIVER_PATH}/src/drv_can_ddt_p1010a.cpp
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "P1010A driver requested but not found.")
+    endif()
+endif()
+
+set(BUILD_CAN_DDT_P1010B_DRIVER OFF)
+if(_can_ddt_p1010b_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CAN_DDT_P1010B_DRIVER_PATH}")
+        set(BUILD_CAN_DDT_P1010B_DRIVER ON)
+        message(STATUS "Found P1010B CAN driver at: ${CAN_DDT_P1010B_DRIVER_PATH}")
+        set(CAN_DDT_P1010B_SOURCES
+            ${CAN_DDT_P1010B_DRIVER_PATH}/src/drv_can_ddt_p1010b.cpp
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "P1010B driver requested but not found.")
+    endif()
+endif()
+
+set(BUILD_UART_DDT_M603C111_DRIVER OFF)
+if(_uart_ddt_m603c111_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_DDT_M603C111_DRIVER_PATH}")
+        set(BUILD_UART_DDT_M603C111_DRIVER ON)
+        message(STATUS "Found M0603C UART driver at: ${UART_DDT_M603C111_DRIVER_PATH}")
+        set(UART_DDT_M603C111_SOURCES
+            ${UART_DDT_M603C111_DRIVER_PATH}/src/drv_uart_ddt_m603c111.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "M0603C UART driver requested but not found.")
+    endif()
+endif()
+
 # ECAT JMC driver path
-set(ECAT_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_ethercat_jmc")
+set(ECAT_JMC_DRIVER_PATH "src/drivers/drv_ethercat_jmc")
 
 # UART XL330 driver path
-set(UART_XL330_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_uart_xl330")
+set(UART_XL330_DRIVER_PATH "src/drivers/drv_uart_xl330")
 
 # Find ethercat library (IgH EtherCAT Master).
 # Rely on CMAKE_PREFIX_PATH (set by build system) for portable resolution.
@@ -178,7 +305,7 @@ endif()
 
 set(BUILD_ECAT_JMC_DRIVER OFF)
 if(_ecat_jmc_requested)
-    if(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND ETHERCAT_LIBRARY)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${ECAT_JMC_DRIVER_PATH}" AND ETHERCAT_LIBRARY)
         set(BUILD_ECAT_JMC_DRIVER ON)
         message(STATUS "Found ECAT JMC driver at: ${ECAT_JMC_DRIVER_PATH}")
 
@@ -190,17 +317,17 @@ if(_ecat_jmc_requested)
             ${ECAT_JMC_DRIVER_PATH}/src/jmc_ihss42.c
             ${ECAT_JMC_DRIVER_PATH}/src/drv_ethercat_jmc_adapter.c
         )
-    elseif(EXISTS "${ECAT_JMC_DRIVER_PATH}" AND NOT ETHERCAT_LIBRARY)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${ECAT_JMC_DRIVER_PATH}" AND NOT ETHERCAT_LIBRARY)
         message(WARNING "ECAT JMC driver found but ethercat library is missing, skipping driver")
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
-        if(NOT EXISTS "${ECAT_JMC_DRIVER_PATH}")
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${ECAT_JMC_DRIVER_PATH}")
             message(WARNING "ECAT JMC driver requested but not found at: ${ECAT_JMC_DRIVER_PATH}")
         endif()
     endif()
 endif()
 
 # CANOpen JMC driver path
-set(CANOPEN_JMC_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_canopen_jmc")
+set(CANOPEN_JMC_DRIVER_PATH "src/drivers/drv_canopen_jmc")
 
 # Decide whether CANOpen JMC is requested:
 set(_canopen_jmc_requested OFF)
@@ -212,7 +339,7 @@ endif()
 
 set(BUILD_CANOPEN_JMC_DRIVER OFF)
 if(_canopen_jmc_requested)
-    if(EXISTS "${CANOPEN_JMC_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${CANOPEN_JMC_DRIVER_PATH}")
         set(BUILD_CANOPEN_JMC_DRIVER ON)
         message(STATUS "Found CANOpen JMC driver at: ${CANOPEN_JMC_DRIVER_PATH}")
 
@@ -239,7 +366,7 @@ endif()
 
 set(BUILD_UART_XL330_DRIVER OFF)
 if(_uart_xl330_requested)
-    if(EXISTS "${UART_XL330_DRIVER_PATH}")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_XL330_DRIVER_PATH}")
         set(BUILD_UART_XL330_DRIVER ON)
         message(STATUS "Found UART XL330 driver at: ${UART_XL330_DRIVER_PATH}")
         set(UART_XL330_SOURCES ${UART_XL330_DRIVER_PATH}/src/drv_uart_xl330.c)
@@ -301,6 +428,42 @@ if(BUILD_CAN_DM_DRIVER)
     # Suppress warnings for CAN DM driver
     set_source_files_properties(${CAN_DM_SOURCES} PROPERTIES
         COMPILE_FLAGS "-Wno-reorder -Wno-unused-value -Wno-missing-field-initializers -Wno-type-limits"
+    )
+endif()
+
+# Add Benmo M15-2D-133 CAN motor driver if available
+if(BUILD_CAN_DDT_M152D133_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CAN_DDT_M152D133_SOURCES}
+    )
+endif()
+
+# Add RS485 DDT M0601C111 motor driver if available
+if(BUILD_UART_485_DDT_M601C111_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${UART_485_DDT_M601C111_SOURCES}
+    )
+endif()
+
+
+# Add P1010A CAN motor driver if available
+if(BUILD_CAN_DDT_P1010A_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CAN_DDT_P1010A_SOURCES}
+    )
+endif()
+
+# Add P1010B CAN motor driver if available
+if(BUILD_CAN_DDT_P1010B_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${CAN_DDT_P1010B_SOURCES}
+    )
+endif()
+
+# Add M0603C UART motor driver if available
+if(BUILD_UART_DDT_M603C111_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${UART_DDT_M603C111_SOURCES}
     )
 endif()
 
@@ -514,6 +677,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
 
 # Optional: Create a test executable
 option(BUILD_TESTS "Build test programs" ON)
+option(BUILD_DRIVER_EXTRA_TESTS "Build internal test programs for drivers" OFF)
 
 if(BUILD_TESTS)
   
@@ -522,8 +686,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_uart tests/test_motor_uart.c)
         set_target_properties(test_motor_uart PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_uart PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
         )
         target_link_libraries(test_motor_uart
             -Wl,--whole-archive
@@ -539,7 +703,7 @@ if(BUILD_TESTS)
         add_executable(test_motor_pwm tests/test_motor_pwm.c)
         set_target_properties(test_motor_pwm PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_pwm PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
         target_link_libraries(test_motor_pwm
             -Wl,--whole-archive
@@ -556,8 +720,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_can tests/test_motor_can.c)
         set_target_properties(test_motor_can PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_can PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
             ${CAN_DM_DRIVER_PATH}/include
         )
         target_link_libraries(test_motor_can
@@ -568,13 +732,79 @@ if(BUILD_TESTS)
         )
         install(TARGETS test_motor_can RUNTIME DESTINATION bin)
     endif()
-    
+
+    # Add Benmo M15-2D-133 CAN motor test if driver is built
+    if(BUILD_CAN_DDT_M152D133_DRIVER)
+        add_executable(test_motor_can_ddt_m152d133 tests/test_motor_can_ddt_m152d133.c)
+        set_target_properties(test_motor_can_ddt_m152d133 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_can_ddt_m152d133 PRIVATE
+            include
+            src
+            ${CAN_DDT_M152D133_DRIVER_PATH}/include
+        )
+        target_link_libraries(test_motor_can_ddt_m152d133
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_can_ddt_m152d133 RUNTIME DESTINATION bin)
+
+        if(BUILD_DRIVER_EXTRA_TESTS)
+            add_executable(test_m152d133 ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133.cpp)
+            set_target_properties(test_m152d133 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133 PRIVATE
+                include
+                src
+                ${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133 RUNTIME DESTINATION bin)
+
+            add_executable(test_m152d133_passive ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133_passive.cpp)
+            set_target_properties(test_m152d133_passive PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133_passive PRIVATE
+                include
+                src
+                ${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133_passive
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133_passive RUNTIME DESTINATION bin)
+
+
+            add_executable(test_m152d133_calibrate ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133_calibrate.cpp)
+            set_target_properties(test_m152d133_calibrate PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m152d133_calibrate PRIVATE
+                include
+                src
+                ${CAN_DDT_M152D133_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_m152d133_calibrate
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m152d133_calibrate RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
     # Add ECAT motor test if driver is built
     if(BUILD_ECAT_JMC_DRIVER)
         add_executable(test_motor_ecat tests/test_motor_ecat.c)
         set_target_properties(test_motor_ecat PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_ecat PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
 
         target_link_libraries(test_motor_ecat
@@ -587,12 +817,255 @@ if(BUILD_TESTS)
         install(TARGETS test_motor_ecat RUNTIME DESTINATION bin)
     endif()
 
+    # Add RS485 DDT M0601C111 motor test if driver is built
+    if(BUILD_UART_485_DDT_M601C111_DRIVER)
+        add_executable(test_motor_485_ddt_m601c111 tests/test_motor_485_ddt_m601c111.c)
+        set_target_properties(test_motor_485_ddt_m601c111 PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_485_ddt_m601c111 PRIVATE
+            include
+            src
+        )
+        target_link_libraries(test_motor_485_ddt_m601c111
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_485_ddt_m601c111 RUNTIME DESTINATION bin)
+
+        if(BUILD_DRIVER_EXTRA_TESTS)
+            add_executable(test_m601c ${UART_485_DDT_M601C111_DRIVER_PATH}/test/test_m601c.c)
+            set_target_properties(test_m601c PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m601c PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m601c
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m601c RUNTIME DESTINATION bin)
+
+            add_executable(test_m601c_pos ${UART_485_DDT_M601C111_DRIVER_PATH}/test/test_m601c_pos.c)
+            set_target_properties(test_m601c_pos PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m601c_pos PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m601c_pos
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m601c_pos RUNTIME DESTINATION bin)
+            
+            add_executable(test_once_pos ${UART_485_DDT_M601C111_DRIVER_PATH}/test/test_once_pos.c)
+            set_target_properties(test_once_pos PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_once_pos PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_once_pos
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_once_pos RUNTIME DESTINATION bin)
+
+            add_executable(test_m601_state ${UART_485_DDT_M601C111_DRIVER_PATH}/test/test_m601_state.c)
+            set_target_properties(test_m601_state PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m601_state PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m601_state
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m601_state RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
+    # Add P1010A CAN motor test if driver is built
+    if(BUILD_CAN_DDT_P1010A_DRIVER)
+        if(BUILD_DRIVER_EXTRA_TESTS)
+            add_executable(test_p1010a ${CAN_DDT_P1010A_DRIVER_PATH}/test/test_p1010a.cpp)
+            set_target_properties(test_p1010a PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_p1010a PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_p1010a
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_p1010a RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
+    # Add P1010B CAN motor test if driver is built
+    if(BUILD_CAN_DDT_P1010B_DRIVER)
+        add_executable(test_motor_can_ddt_p1010b tests/test_motor_can_ddt_p1010b.c)
+        set_target_properties(test_motor_can_ddt_p1010b PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_can_ddt_p1010b PRIVATE
+            include
+            src
+        )
+        target_link_libraries(test_motor_can_ddt_p1010b
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_can_ddt_p1010b RUNTIME DESTINATION bin)
+
+        if(BUILD_DRIVER_EXTRA_TESTS)
+            add_executable(test_p1010b ${CAN_DDT_P1010B_DRIVER_PATH}/test/test_p1010b.cpp)
+            set_target_properties(test_p1010b PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_p1010b PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_p1010b
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_p1010b RUNTIME DESTINATION bin)
+
+            add_executable(test_p1010b_state ${CAN_DDT_P1010B_DRIVER_PATH}/test/test_p1010b_state.cpp)
+            set_target_properties(test_p1010b_state PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_p1010b_state PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_p1010b_state
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_p1010b_state RUNTIME DESTINATION bin)
+
+            add_executable(test_p1010b_pos_traj ${CAN_DDT_P1010B_DRIVER_PATH}/test/test_p1010b_pos_traj.cpp)
+            set_target_properties(test_p1010b_pos_traj PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_p1010b_pos_traj PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_p1010b_pos_traj
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_p1010b_pos_traj RUNTIME DESTINATION bin)
+        endif()
+    endif()
+
+    # Add M0603C UART motor test if driver is built
+    if(BUILD_UART_DDT_M603C111_DRIVER)
+        if(BUILD_DRIVER_EXTRA_TESTS)
+            add_executable(test_m603c ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c.c)
+            set_target_properties(test_m603c PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c RUNTIME DESTINATION bin)
+
+            add_executable(test_m603c_pos ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c_pos.c)
+            set_target_properties(test_m603c_pos PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c_pos PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c_pos
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c_pos RUNTIME DESTINATION bin)
+
+            add_executable(test_m603c_open ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c_open.c)
+            set_target_properties(test_m603c_open PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c_open PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c_open
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c_open RUNTIME DESTINATION bin)
+
+            add_executable(test_state ${UART_DDT_M603C111_DRIVER_PATH}/test/test_state.c)
+            set_target_properties(test_state PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_state PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_state
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_state RUNTIME DESTINATION bin)
+
+            add_executable(test_m603c_current ${UART_DDT_M603C111_DRIVER_PATH}/test/test_m603c_current.c)
+            set_target_properties(test_m603c_current PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_m603c_current PRIVATE
+                include
+                src
+            )
+            target_link_libraries(test_m603c_current
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_m603c_current RUNTIME DESTINATION bin)
+        endif()
+
+        add_executable(test_motor_uart_ddt_m603c111 tests/test_motor_uart_ddt_m603c111.c)
+        set_target_properties(test_motor_uart_ddt_m603c111 PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_uart_ddt_m603c111 PRIVATE
+            include
+        )
+        target_link_libraries(test_motor_uart_ddt_m603c111
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_uart_ddt_m603c111 RUNTIME DESTINATION bin)
+    endif()
+
     # Add CANOpen JMC motor test if driver is built
     if(BUILD_CANOPEN_JMC_DRIVER)
         add_executable(test_motor_canopen_jmc tests/test_motor_canopen_jmc.c)
         set_target_properties(test_motor_canopen_jmc PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_canopen_jmc PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            include
         )
         target_link_libraries(test_motor_canopen_jmc
             -Wl,--whole-archive
@@ -608,8 +1081,8 @@ if(BUILD_TESTS)
         add_executable(test_motor_xl330 tests/test_uart_xl330.c)
         set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_xl330 PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            include
+            src
         )
         target_link_libraries(test_motor_xl330
             -Wl,--whole-archive
