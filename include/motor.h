@@ -1,6 +1,9 @@
-/*
+/**
  * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file motor.h
+ * @brief Public API for pluggable motor drivers.
  */
 
 #ifndef MOTOR_H
@@ -63,6 +66,17 @@ struct motor_state {
     uint32_t err;
 };
 
+/**
+ * @brief Driver option passed by configuration-driven upper layers.
+ *
+ * The motor driver owns the option schema and parses values during allocation.
+ * Callers only need to keep the strings alive until the allocation call returns.
+ */
+struct motor_option {
+    const char *name;
+    const char *value;
+};
+
 /* opaque handle */
 struct motor_dev;
 
@@ -88,6 +102,11 @@ struct motor_dev *motor_alloc_pwm(const char *name, uint32_t ch, void *args);
 
 struct motor_dev *motor_alloc_can(const char *name, const char *iface,
                                     uint32_t can_id, void *args);
+struct motor_dev *motor_alloc_can_with_options(const char *name,
+                                                const char *iface,
+                                                uint32_t can_id,
+                                                const struct motor_option *options,
+                                                uint32_t option_count);
 struct motor_dev *motor_alloc_uart(const char *name, const char *dev_path,
                                     uint32_t baud, uint8_t id, void *args);
 struct motor_dev *motor_alloc_ecat(const char *name, uint16_t slave_idx,
@@ -113,4 +132,4 @@ static inline int motor_get_state_one(struct motor_dev *dev,
 }
 #endif
 
-#endif /* __MOTOR_H__ */
+#endif /* MOTOR_H */

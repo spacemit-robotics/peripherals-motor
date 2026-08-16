@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file damiao.h
+ * @brief Damiao motor and SocketCAN transport declarations.
+ */
+
 #ifndef DAMIAO_H
 #define DAMIAO_H
 
@@ -40,6 +48,9 @@ enum DM_Motor_Type {
     DMH3510,
     DMH6215,
     DMG6220,
+    DMJ4310_2EC,
+    DMJ4340P_2EC,
+    DMJ6248P_2EC,
     Num_Of_Motor
 };
 
@@ -162,8 +173,14 @@ struct DmActData {
     uint16_t can_id;                      ///< 电机 CAN ID
     uint16_t mst_id;                      ///< 主机 ID
     double pos, vel, effort;              ///< 当前状态：位置(rad)、速度(rad/s)、力矩(Nm)
+    double temperature;                   ///< MOS/转子温度的较大值 (degC)
+    uint32_t error;                       ///< 转换后的驱动器错误码
     double cmd_pos, cmd_vel, cmd_effort;  ///< 命令值
     double kp, kd;                        ///< MIT 模式增益：位置刚度、阻尼
+    Limit_param limits;                   ///< MIT 协议数值范围
+    bool use_custom_limits;               ///< 是否覆盖型号默认范围
+    uint64_t feedback_sequence;            ///< 最新反馈序号
+    uint64_t consumed_sequence;            ///< 上层已消费的反馈序号
 };
 
 /**
@@ -182,6 +199,9 @@ private:
     float state_q = 0.0;        ///< 当前位置 (rad)
     float state_dq = 0.0;       ///< 当前速度 (rad/s)
     float state_tau = 0.0;      ///< 当前力矩 (Nm)
+    float state_temperature = 0.0;  ///< 当前最高电机温度 (degC)
+    uint32_t state_error = 0;       ///< 当前转换后错误码
+    uint64_t state_sequence = 0; ///< 已接收反馈帧数量
     Limit_param limit_param{};  ///< 电机限制参数
     DM_Motor_Type Motor_Type;   ///< 电机型号
     Control_Mode mode;          ///< 当前控制模式
@@ -209,7 +229,8 @@ public:
      * @param can_id 电机 CAN ID
      * @param master_id 主机 ID
      */
-    Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id, uint16_t master_id);
+    Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id,
+        uint16_t master_id, const Limit_param* custom_limits = nullptr);
 
     /**
      * @brief 接收电机反馈数据
@@ -217,7 +238,7 @@ public:
      * @param dq 速度 (rad/s)
      * @param tau 力矩 (Nm)
      */
-    void receive_data(float q, float dq, float tau);
+    void receive_data(float q, float dq, float tau, float temperature, uint32_t error);
 
     /// @brief 获取电机型号
     DM_Motor_Type GetMotorType() const {
@@ -262,6 +283,21 @@ public:
     /// @brief 获取当前力矩 (Nm)
     float Get_tau() const {
         return this->state_tau;
+    }
+
+    /// @brief 获取 MOS/转子温度的较大值 (degC)
+    float GetTemperature() const {
+        return state_temperature;
+    }
+
+    /// @brief 获取转换后的电机错误码。
+    uint32_t GetError() const {
+        return state_error;
+    }
+
+    /// @brief 获取最新反馈序号，0 表示尚未收到反馈。
+    uint64_t GetStateSequence() const {
+        return state_sequence;
     }
 
     /// @brief 设置控制模式
@@ -402,7 +438,7 @@ public:
      * 控制方程：τ = kp*(q_des-q) + kd*(dq_des-dq) + τ_ff
      * 最灵活的控制模式，适合力控交互任务
      */
-    void control_mit(Motor& DM_Motor, float kp, float kd, float q, float dq, float tau);
+    bool control_mit(Motor& DM_Motor, float kp, float kd, float q, float dq, float tau);
 
     /**
      * @brief 位置+速度控制
@@ -413,7 +449,7 @@ public:
      * 同时指定位置和速度，电机内部 PID 跟踪
      * 适合轨迹跟踪任务
      */
-    void control_pos_vel(Motor& DM_Motor, float pos, float vel);
+    bool control_pos_vel(Motor& DM_Motor, float pos, float vel);
 
     /**
      * @brief 纯速度控制
@@ -423,7 +459,7 @@ public:
      * 只控制速度，最简单的控制模式
      * 适合恒速运动
      */
-    void control_vel(Motor& DM_Motor, float vel);
+    bool control_vel(Motor& DM_Motor, float vel);
 
     /**
      * @brief 位置+力矩控制（力位混控模式）
@@ -435,7 +471,7 @@ public:
      * 位置控制 + 速度限制 + 电流限制
      * 适合需要力矩限制的位置控制任务
      */
-    void control_pos_force(Motor& DM_Motor, float pos, float vel_limit, float current_limit);
+    bool control_pos_force(Motor& DM_Motor, float pos, float vel_limit, float current_limit);
 
     /**
      * @brief 接收电机参数反馈
@@ -529,14 +565,14 @@ public:
      * @param id 电机 ID
      * @param cmd 命令字节
      */
-    void send_control_cmd(uint16_t id, uint8_t cmd) {
-        control_cmd(id, cmd);
+    bool send_control_cmd(uint16_t id, uint8_t cmd) {
+        return control_cmd(id, cmd);
     }
 
 private:
-    void control_cmd(uint16_t id, uint8_t cmd);
+    bool control_cmd(uint16_t id, uint8_t cmd);
 
-    void write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4]);
+    bool write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4]);
     static bool is_in_ranges(int number) {
         return (7 <= number && number <= 10) || (13 <= number && number <= 16) || (35 <= number && number <= 36);
     }

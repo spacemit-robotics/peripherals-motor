@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(dm_main)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
@@ -12,6 +12,7 @@ add_library(mylib STATIC
     src/damiao.cpp
     src/damiao_hw.cpp
     src/damiao_pack.cpp
+    src/damiao_protocol.cpp
     src/drv_can_dm.cpp
 )
 
@@ -48,3 +49,15 @@ target_link_libraries(test_dm_mode_switch PRIVATE
 )
 set_target_properties(test_dm_mode_switch PROPERTIES BUILD_RPATH "$ORIGIN/../lib")
 install(TARGETS test_dm_mode_switch RUNTIME DESTINATION bin)
+
+add_executable(test_damiao_protocol
+    test/test_damiao_protocol.cpp
+    ../../motor_core.c
+    $<TARGET_OBJECTS:dm1_driver_obj>
+)
+target_include_directories(test_damiao_protocol PRIVATE
+    ../../../include
+    ../..
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_damiao_protocol PRIVATE mylib)
