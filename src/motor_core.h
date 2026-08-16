@@ -1,6 +1,9 @@
-/*
+/**
  * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file motor_core.h
+ * @brief Internal motor driver registry and option helpers.
  */
 #ifndef MOTOR_CORE_H
 #define MOTOR_CORE_H
@@ -12,6 +15,8 @@ struct motor_args_can {
     const char *iface;
     uint32_t can_id;
     void *args;
+    const struct motor_option *options;
+    uint32_t option_count;
 };
 
 struct motor_args_uart {
@@ -66,6 +71,23 @@ struct driver_info {
 
 /* 核心提供的注册API */
 void motor_driver_register(struct driver_info *info);
+
+/* Driver-side helpers for the generic motor_option representation. */
+const char *motor_option_find(const struct motor_option *options,
+    uint32_t option_count, const char *name);
+int motor_options_validate(const struct motor_option *options,
+    uint32_t option_count,
+    const char *const *allowed_names,
+    uint32_t allowed_count);
+int motor_option_read_bool(const struct motor_option *options,
+    uint32_t option_count, const char *name,
+    bool *value);
+int motor_option_read_u32(const struct motor_option *options,
+    uint32_t option_count, const char *name,
+    uint32_t *value);
+int motor_option_read_float(const struct motor_option *options,
+    uint32_t option_count, const char *name,
+    float *value);
 
 /* 7. 自动注册宏 (GCC/Clang Constructor) */
 #define REGISTER_MOTOR_DRIVER(_name, _type, _factory)                          \
