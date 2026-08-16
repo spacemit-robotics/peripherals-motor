@@ -21,6 +21,8 @@
     | `src/drivers/drv_can_ddt_m152d133/` | 本末 M152D133 CAN 电机驱动实现 |
     | `src/drivers/drv_can_ddt_p1010b/` | 本末 P1010B CAN 电机驱动实现 |
     | `src/drivers/drv_can_dm/` | 达妙 CAN 电机驱动实现 |
+    | `src/drivers/drv_can_encos/` | Encos CAN 电机驱动实现 |
+    | `src/drivers/drv_can_agibot/` | AGIBOT OmniPicker CAN 电机驱动实现 |
     | `src/drivers/drv_canopen_jmc/` | JMC CANOpen 电机驱动实现 |
     | `src/drivers/drv_ethercat_jmc/` | JMC EtherCAT 电机驱动实现 |
     | `src/drivers/drv_pwm_generic.c` | 通用 PWM 电机驱动实现 |
@@ -336,6 +338,11 @@ void motor_free(struct motor_dev **devs, uint32_t count);
 // devs: 电机设备数组指针, count: 电机数量
 ```
 
+配置驱动型上层使用 `motor_alloc_can_with_options()` 传入键值参数，原有
+`motor_alloc_can()` 保持兼容。具体选项见 [达妙](src/drivers/drv_can_dm/README_CAN_DM.md)、
+[Encos](src/drivers/drv_can_encos/README_CAN_ENCOS.md) 和
+[AGIBOT](src/drivers/drv_can_agibot/README_CAN_AGIBOT.md) 驱动文档。
+
 **2. 核心控制与状态读取**
 ```c
 // 批量设置控制命令：发送位置、速度、力矩或 MIT 混合指令
@@ -346,6 +353,8 @@ int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds, uint32
 int motor_get_states(struct motor_dev **devs, struct motor_state *states, uint32_t count);
 // devs: 电机设备数组, states: 状态数组(输出), count: 电机数量
 ```
+
+批量接口跳过空设备槽位并返回第一个驱动错误，调用方必须检查返回值。
 
 **3. 底层参数配置 (寄存器/对象字典)**
 ```c
