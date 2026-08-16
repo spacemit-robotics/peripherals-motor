@@ -193,8 +193,10 @@ static int drain_bus(struct encos_bus *bus) {
     for (;;) {
         size = read(bus->fd, &frame, sizeof(frame));
         if (size == (ssize_t)sizeof(frame)) {
+            const canid_t unsupported_flags = CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG;
             const uint32_t can_id = frame.can_id & CAN_SFF_MASK;
-            if (can_id <= ENCOS_MAX_CAN_ID && frame.can_dlc == CAN_MAX_DLEN) {
+            if ((frame.can_id & unsupported_flags) == 0U &&
+                can_id <= ENCOS_MAX_CAN_ID && frame.can_dlc == CAN_MAX_DLEN) {
                 bus->frames[can_id] = frame;
                 bus->frame_valid[can_id] = true;
             }

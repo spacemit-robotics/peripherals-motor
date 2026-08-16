@@ -259,7 +259,7 @@ int damiao_set_cmd(const char* bus_name, uint16_t can_id, uint32_t mode, float p
             break;
 
         case MOTOR_MODE_IDLE:
-            break;
+            return g_damiao_hw->disableOnce(bus, can_id) ? 0 : -1;
 
         default:
             std::cerr << "[DamiaoPack] Unknown mode: " << mode << std::endl;
@@ -311,6 +311,7 @@ void damiao_release(const char* bus_name, uint16_t can_id) {
     if (!g_initialized || g_clients == 0) return;
     if (--g_clients > 0) return;
     g_damiao_hw->stopAutoRead();
+    g_damiao_hw->disableAll();
     g_damiao_hw.reset();
     g_pending_configs.clear();
     g_initialized = false;
