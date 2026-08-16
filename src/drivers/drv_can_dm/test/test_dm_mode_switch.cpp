@@ -1,6 +1,9 @@
-/*
+/**
  * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file test_dm_mode_switch.cpp
+ * @brief Manual Damiao multi-mode control test.
  *
  * 测试用例：验证 drv_can_dm1 驱动的多模式切换（双电机同步）
  * 基于 damiao_pack.cpp (DamiaoHW) 抽象层
@@ -60,7 +63,7 @@ static void settle_before_switch(struct motor_dev** devs, int count, const char*
     printf("  [settle] Ready\n");
 }
 
-int main(int argc, char** argv) {
+int main() {
     struct motor_dev* devs[NUM_MOTORS];
     struct motor_state states[NUM_MOTORS];
     struct motor_cmd cmd = {};
@@ -143,13 +146,13 @@ int main(int argc, char** argv) {
         usleep(LOOP_PERIOD_US);
     }
 
-    // ========== Phase 4: 力位混控 ==========
+    // ========== Phase 4: 纯力矩控制 ==========
     settle_before_switch(devs, NUM_MOTORS, "MOTOR_MODE_TRQ");
-    printf("--- Phase 4: MOTOR_MODE_TRQ (POS_FORCE) ---\n");
+    printf("--- Phase 4: MOTOR_MODE_TRQ (MIT pure torque) ---\n");
     for (int i = 0; i < PHASE_STEPS; i++) {
         cmd.mode = MOTOR_MODE_TRQ;
-        cmd.pos_des = 1.0f;
-        cmd.vel_des = 10.0f;
+        cmd.pos_des = 0.0f;
+        cmd.vel_des = 0.0f;
         cmd.trq_des = 0.5f;
         cmd.kp = 0.0f;
         cmd.kd = 0.0f;

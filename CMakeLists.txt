@@ -39,6 +39,12 @@ set(CAN_DDT_P1010B_DRIVER_PATH "src/drivers/drv_can_ddt_p1010b")
 set(UART_DDT_M603C111_DRIVER_PATH "src/drivers/drv_uart_ddt_m603c111")
 
 
+# Encos CAN driver path
+set(CAN_ENCOS_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_can_encos")
+
+# AGIBOT CAN driver path
+set(CAN_AGIBOT_DRIVER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/drv_can_agibot")
+
 set(_pwm_rohs_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
     set(_pwm_rohs_requested ON)
@@ -177,6 +183,7 @@ if(_can_dm_requested)
             ${CAN_DM_DRIVER_PATH}/src/damiao.cpp
             ${CAN_DM_DRIVER_PATH}/src/damiao_pack.cpp
             ${CAN_DM_DRIVER_PATH}/src/damiao_hw.cpp
+            ${CAN_DM_DRIVER_PATH}/src/damiao_protocol.cpp
             ${CAN_DM_DRIVER_PATH}/src/socketcan.cpp
         )
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
@@ -241,6 +248,48 @@ if(_uart_ddt_m603c111_requested)
         )
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         message(WARNING "M0603C UART driver requested but not found.")
+    endif()
+endif()
+
+set(_can_encos_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_encos_requested ON)
+elseif("drv_can_encos" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR
+       "can_encos" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_encos_requested ON)
+endif()
+
+set(BUILD_CAN_ENCOS_DRIVER OFF)
+if(_can_encos_requested)
+    if(EXISTS "${CAN_ENCOS_DRIVER_PATH}")
+        set(BUILD_CAN_ENCOS_DRIVER ON)
+        set(CAN_ENCOS_SOURCES
+            ${CAN_ENCOS_DRIVER_PATH}/src/drv_can_encos.c
+            ${CAN_ENCOS_DRIVER_PATH}/src/encos_protocol.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "Encos CAN driver requested but not found at: ${CAN_ENCOS_DRIVER_PATH}")
+    endif()
+endif()
+
+set(_can_agibot_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_can_agibot_requested ON)
+elseif("drv_can_agibot" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR
+       "can_agibot" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_can_agibot_requested ON)
+endif()
+
+set(BUILD_CAN_AGIBOT_DRIVER OFF)
+if(_can_agibot_requested)
+    if(EXISTS "${CAN_AGIBOT_DRIVER_PATH}")
+        set(BUILD_CAN_AGIBOT_DRIVER ON)
+        set(CAN_AGIBOT_SOURCES
+            ${CAN_AGIBOT_DRIVER_PATH}/src/drv_can_agibot.c
+            ${CAN_AGIBOT_DRIVER_PATH}/src/agibot_protocol.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "AGIBOT CAN driver requested but not found at: ${CAN_AGIBOT_DRIVER_PATH}")
     endif()
 endif()
 
@@ -437,6 +486,16 @@ if(BUILD_UART_DDT_M603C111_DRIVER)
     )
 endif()
 
+if(BUILD_CAN_ENCOS_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES ${CAN_ENCOS_SOURCES})
+    include_directories(${CAN_ENCOS_DRIVER_PATH}/include)
+endif()
+
+if(BUILD_CAN_AGIBOT_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES ${CAN_AGIBOT_SOURCES})
+    include_directories(${CAN_AGIBOT_DRIVER_PATH}/include)
+endif()
+
 # Add ECAT JMC motor driver if available
 if(BUILD_ECAT_JMC_DRIVER)
     list(APPEND MOTOR_DRIVER_SOURCES
@@ -470,19 +529,19 @@ set(MOTOR_SOURCES
 add_library(motor STATIC ${MOTOR_SOURCES})
 set_target_properties(motor PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Find libgpiod
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBGPIOD libgpiod)
-
-if(NOT LIBGPIOD_FOUND)
-    message(WARNING "libgpiod not found. Please install it: sudo apt-get install libgpiod-dev")
+# Find libgpiod only when a selected PWM driver needs it.
+if(BUILD_PWM_ROHS_DRIVER OR BUILD_PWM_GENERIC_DRIVER)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBGPIOD libgpiod)
+    if(NOT LIBGPIOD_FOUND)
+        message(WARNING "libgpiod not found. Please install it: sudo apt-get install libgpiod-dev")
+    endif()
 endif()
 
-# Detect libgpiod API version via compile check.
-# Some sysroots report version 2.x but ship v1 headers, so we probe the actual
-# API availability rather than trusting the version string alone.
-include(CheckCSourceCompiles)
+# Detect libgpiod API version via compile check. Some sysroots report version
+# 2.x but ship v1 headers, so probe the actual API instead of trusting metadata.
 if(LIBGPIOD_FOUND)
+    include(CheckCSourceCompiles)
     set(CMAKE_REQUIRED_INCLUDES ${LIBGPIOD_INCLUDE_DIRS})
     set(CMAKE_REQUIRED_LIBRARIES ${LIBGPIOD_LIBRARIES})
     check_c_source_compiles("
@@ -650,6 +709,21 @@ option(BUILD_TESTS "Build test programs" ON)
 option(BUILD_DRIVER_EXTRA_TESTS "Build internal test programs for drivers" OFF)
 
 if(BUILD_TESTS)
+    enable_testing()
+
+    add_executable(test_motor_core
+        tests/test_motor_core.c
+        src/motor_core.c
+    )
+    target_include_directories(test_motor_core PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(test_motor_core PRIVATE -UNDEBUG)
+    endif()
+    install(TARGETS test_motor_core RUNTIME DESTINATION bin)
+    add_test(NAME motor_core COMMAND test_motor_core)
   
     # Add UART motor test (generic, supports feetech etc.) when Feetech driver is built
     if(BUILD_FEETECH_DRIVER)
@@ -701,6 +775,65 @@ if(BUILD_TESTS)
             pthread
         )
         install(TARGETS test_motor_can RUNTIME DESTINATION bin)
+
+        add_executable(test_damiao_protocol
+            ${CAN_DM_DRIVER_PATH}/test/test_damiao_protocol.cpp
+        )
+        target_include_directories(test_damiao_protocol PRIVATE
+            ${CAN_DM_DRIVER_PATH}/include
+        )
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(test_damiao_protocol PRIVATE -UNDEBUG)
+        endif()
+        target_link_libraries(test_damiao_protocol PRIVATE
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+        )
+        install(TARGETS test_damiao_protocol RUNTIME DESTINATION bin)
+        add_test(NAME damiao_protocol COMMAND test_damiao_protocol)
+    endif()
+
+    if(BUILD_CAN_ENCOS_DRIVER)
+        add_executable(test_encos_protocol
+            ${CAN_ENCOS_DRIVER_PATH}/test/test_encos_protocol.c
+        )
+        target_include_directories(test_encos_protocol PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CAN_ENCOS_DRIVER_PATH}/include
+        )
+        target_link_libraries(test_encos_protocol PRIVATE
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            m
+        )
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(test_encos_protocol PRIVATE -UNDEBUG)
+        endif()
+        install(TARGETS test_encos_protocol RUNTIME DESTINATION bin)
+        add_test(NAME encos_protocol COMMAND test_encos_protocol)
+    endif()
+
+    if(BUILD_CAN_AGIBOT_DRIVER)
+        add_executable(test_agibot_protocol
+            ${CAN_AGIBOT_DRIVER_PATH}/test/test_agibot_protocol.c
+        )
+        target_include_directories(test_agibot_protocol PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CAN_AGIBOT_DRIVER_PATH}/include
+        )
+        target_link_libraries(test_agibot_protocol PRIVATE
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            m
+        )
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(test_agibot_protocol PRIVATE -UNDEBUG)
+        endif()
+        install(TARGETS test_agibot_protocol RUNTIME DESTINATION bin)
+        add_test(NAME agibot_protocol COMMAND test_agibot_protocol)
     endif()
 
     # Add Benmo M15-2D-133 CAN motor test if driver is built

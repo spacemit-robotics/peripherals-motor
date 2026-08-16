@@ -12,7 +12,7 @@
 ## 功能特性
 
 **支持的功能：**
-- ✅ 支持达妙系列电机（DM4310）
+- ✅ 支持达妙系列电机，包括 DM-J4310-2EC、DM-J4340P-2EC、DM-J6248P-2EC
 - ✅ 支持 MIT 控制模式（位置/速度/力矩）
 - ✅ CAN 总线多电机配置与管理
 - ✅ 电机状态反馈（位置/速度/力矩）
@@ -53,12 +53,16 @@ make
 ### 运行示例
 
 **使用统一 CAN 测试程序：**
+
+`test_motor_can` 仅用于独立电机台架调试。程序会主动切换控制模式、写入运行参数并
+发送运动目标，不用于整机实机测试。
+
 ```bash
 # 默认 DM 驱动，can0，默认 ID=0x02/0x03
 sudo ./test_motor_can
 
 # 指定驱动、接口与多个电机 ID
-sudo ./test_motor_can --driver dm_can --if can0 --id 0x02 --id 0x03
+sudo ./test_motor_can --driver drv_can_dm --if can0 --id 0x02 --id 0x03
 ```
 **注意： 程序内定义的电机 ID 必须与总线上的 电机实际 ID 完全匹配**
 
@@ -72,8 +76,9 @@ mkdir -p build && cd build
 cmake ..
 make
 
-# 运行测试（示例程序 test_dm_motor）
-./test_dm_motor
+# 运行测试
+./test_dm_mode_switch
+./test_damiao_protocol
 ```
 
 ## 详细使用
@@ -90,6 +95,11 @@ make
 - `master_id`：主机 ID（部分电机需要，按电机手册设置）
 - `motor_type`：电机型号（如 `DM4310`）
 - `control_mode`：控制模式（如 `MIT_MODE`）
+
+配置驱动型上层可用 `model` 直接选择上述型号。现有配置也可继续完整提供
+`protocol_limits.position/velocity/torque/kp/kd` 作为自定义协议量程。
+`can_timeout_ms` 配置电机内部 CAN watchdog，默认 `500 ms`，仅离线调试时设为 `0`。
+`MOTOR_MODE_TRQ` 通过 MIT 帧发送零位置、零速度、零增益和目标力矩。
 
 
 **MIT 直接控制参数（示例接口：`send_mit_command`）：**

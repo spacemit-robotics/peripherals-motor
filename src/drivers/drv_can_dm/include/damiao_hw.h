@@ -1,9 +1,16 @@
+/**
+ * Copyright (C) 2026 SpacemiT (Hangzhou) Technology Co. Ltd.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * @file damiao_hw.h
+ * @brief Damiao multi-bus hardware manager declarations.
+ */
+
 #ifndef DAMIAO_HW_H
 #define DAMIAO_HW_H
 
-#pragma once
-
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -23,6 +30,11 @@ struct MotorConfig {
     uint16_t master_id;         ///< 主机 ID
     DM_Motor_Type motor_type;   ///< 电机型号
     Control_Mode control_mode;  ///< 初始控制模式
+    Limit_param limits;         ///< MIT 协议数值范围
+    uint32_t feedback_period_us;  ///< 状态缓存刷新周期（微秒）
+    uint32_t can_timeout_ms;      ///< 电机硬件 CAN watchdog（毫秒）
+    bool use_custom_limits;     ///< 是否覆盖型号默认范围
+    bool enable_on_init;        ///< 初始化完成后是否使能
 };
 
 /**
@@ -70,6 +82,11 @@ public:
      */
     DmActData* getMotorData(const std::string& bus_name, uint16_t can_id);
 
+    bool getMotorState(const std::string& bus_name, uint16_t can_id,
+        float* position, float* velocity, float* torque, float* temperature, uint32_t* error);
+    bool validateMitCommand(const std::string& bus_name, uint16_t can_id,
+        float position, float velocity, float torque, float kp, float kd);
+
     // ========== 模式管理接口 ==========
 
     /**
@@ -101,8 +118,8 @@ public:
      * @param kp 位置刚度 (0-500)
      * @param kd 阻尼系数 (0-5)
      */
-    void controlMit(const std::string& bus_name, uint16_t can_id, float pos, float vel, float torque, float kp,
-                    float kd);
+    bool controlMit(const std::string& bus_name, uint16_t can_id, float pos, float vel,
+        float torque, float kp, float kd);
 
     /**
      * @brief 位置+速度控制
@@ -111,7 +128,7 @@ public:
      * @param pos 目标位置 (rad)
      * @param vel 目标速度 (rad/s)
      */
-    void controlPosVel(const std::string& bus_name, uint16_t can_id, float pos, float vel);
+    bool controlPosVel(const std::string& bus_name, uint16_t can_id, float pos, float vel);
 
     /**
      * @brief 速度控制
@@ -119,7 +136,7 @@ public:
      * @param can_id 电机 ID
      * @param vel 目标速度 (rad/s)
      */
-    void controlVel(const std::string& bus_name, uint16_t can_id, float vel);
+    bool controlVel(const std::string& bus_name, uint16_t can_id, float vel);
 
     /**
      * @brief 位置+力矩控制（力位混控模式）
@@ -129,7 +146,8 @@ public:
      * @param vel_limit 速度限制 (rad/s, 0-100)
      * @param current_limit 电流限制标幺值 (0-1.0)
      */
-    void controlPosForce(const std::string& bus_name, uint16_t can_id, float pos, float vel_limit, float current_limit);
+    bool controlPosForce(const std::string& bus_name, uint16_t can_id, float pos,
+        float vel_limit, float current_limit);
 
     // ========== 参数调节接口 ==========
 
@@ -185,14 +203,24 @@ public:
      * @param bus_name 总线名称
      * @param can_id 电机 ID
      */
-    void enable(const std::string& bus_name, uint16_t can_id);
+    bool enable(const std::string& bus_name, uint16_t can_id);
 
     /**
      * @brief 失能指定电机
      * @param bus_name 总线名称
      * @param can_id 电机 ID
      */
-    void disable(const std::string& bus_name, uint16_t can_id);
+    bool disable(const std::string& bus_name, uint16_t can_id);
+
+    /**
+     * @brief 单次发送失能帧，用于周期性维持失能状态
+     * @param bus_name 总线名称
+     * @param can_id 电机 ID
+     */
+    bool disableOnce(const std::string& bus_name, uint16_t can_id);
+
+    /** Send a disable frame on every supported mode CAN ID. */
+    bool disableAllModes(const std::string& bus_name, uint16_t can_id);
 
     /**
      * @brief 设置电机零点
@@ -203,9 +231,9 @@ public:
 
     /**
      * @brief 启动自动读取线程
-     * @param period_ms 读取周期 (毫秒)
+     * @param period_us 读取周期（微秒）
      */
-    void startAutoRead(unsigned int period_ms);
+    void startAutoRead(uint32_t period_us);
 
     /**
      * @brief 停止自动读取线程
@@ -228,9 +256,10 @@ private:
 
     // 总线名称 -> (电机ID -> 电机数据) 映射
     std::unordered_map<std::string, std::unordered_map<uint16_t, DmActData>> bus_motor_data_;
+    std::mutex state_mutex_;
 
     // 自动读取线程
-    bool read_running_ = false;
+    std::atomic<bool> read_running_{false};
     std::thread read_thread_;
 };
 

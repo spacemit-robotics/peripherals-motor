@@ -132,7 +132,7 @@ public:
      *
      * @note 该函数是非阻塞的
      */
-    void write(can_frame* frame) const;
+    bool write(const can_frame* frame) const;
 
     /**
      * @brief 启动 CAN 接收线程

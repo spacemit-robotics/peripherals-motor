@@ -126,15 +126,19 @@ bool SocketCAN::isOpen() const {
     return (sock_fd_ != -1);
 }
 
-void SocketCAN::write(can_frame* frame) const {
+bool SocketCAN::write(const can_frame* frame) const {
     if (!isOpen()) {
         // ROS_ERROR_THROTTLE(5., "Unable to write: Socket %s not open", interface_request_.ifr_name);
         log_throttled_error(interface_request_.ifr_name);
-        return;
+        return false;
     }
-    if (::write(sock_fd_, frame, sizeof(can_frame)) == -1)
+    const ssize_t written = ::write(sock_fd_, frame, sizeof(can_frame));
+    if (written != static_cast<ssize_t>(sizeof(can_frame))) {
         // ROS_DEBUG_THROTTLE(5., "Unable to write: The %s tx buffer may be full", interface_request_.ifr_name);
         log_throttled_error(interface_request_.ifr_name);
+        return false;
+    }
+    return true;
 }
 
 static void* socketcan_receiver_thread(void* argv) {
@@ -163,7 +167,7 @@ static void* socketcan_receiver_thread(void* argv) {
         FD_SET(sock->sock_fd_, &descriptors);
         // Wait until timeout or activity on any descriptor
         if (select(maxfd + 1, &descriptors, nullptr, nullptr, &timeout)) {
-            size_t len = read(sock->sock_fd_, &rx_frame, CAN_MTU);
+            const ssize_t len = read(sock->sock_fd_, &rx_frame, CAN_MTU);
             if (len < 0)
                 continue;
             if (sock->reception_handler != nullptr)
