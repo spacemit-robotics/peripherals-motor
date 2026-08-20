@@ -226,6 +226,14 @@ static int dm1_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     if (mode_result > 0) priv->enabled = false;
 
     if (!priv->enabled) {
+        if (cmd->mode == MOTOR_MODE_HYBRID || cmd->mode == MOTOR_MODE_TRQ) {
+            const float neutral_position =
+                cmd->mode == MOTOR_MODE_HYBRID ? cmd->pos_des : 0.0f;
+            if (damiao_set_cmd(priv->bus_name, priv->can_id, cmd->mode,
+                neutral_position, 0.0f, 0.0f, 0.0f, 0.0f) != 0) {
+                return -1;
+            }
+        }
         if (damiao_enable(priv->bus_name, priv->can_id) != 0) {
             return -1;
         }
