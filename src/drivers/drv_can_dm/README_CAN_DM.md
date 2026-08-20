@@ -100,6 +100,8 @@ make
 `protocol_limits.position/velocity/torque/kp/kd` 作为自定义协议量程。
 `can_timeout_ms` 配置电机内部 CAN watchdog，默认 `500 ms`，仅离线调试时设为 `0`。
 `MOTOR_MODE_TRQ` 通过 MIT 帧发送零位置、零速度、零增益和目标力矩。
+首次进入 MIT 或纯力矩模式时，驱动先发送零速度、零力矩、零增益的中性帧，再单次使能
+电机并发送目标命令；使能过程不会在实时命令路径中阻塞重发。
 
 
 **MIT 直接控制参数（示例接口：`send_mit_command`）：**

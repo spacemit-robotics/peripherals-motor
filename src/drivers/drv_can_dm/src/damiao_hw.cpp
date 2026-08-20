@@ -237,14 +237,9 @@ void DamiaoHW::disableAll() {
 bool DamiaoHW::enable(const std::string& bus_name, uint16_t can_id) {
     auto result = findMotor(bus_name, can_id);
     if (!result.first || !result.second) return false;
-    // 与 Motor_Control::enable_all 一致：cmd 0xFC，id 为 can_id + 当前模式偏移，重发多次确保生效
+    // CAN 控制器负责总线级重传，实时命令路径不做阻塞式应用层重发。
     uint16_t frame_id = result.second->GetCanId() + result.second->GetMotorMode();
-    bool success = true;
-    for (int i = 0; i < 5; i++) {
-        success = result.first->send_control_cmd(frame_id, 0xFC) && success;
-        usleep(2000);
-    }
-    if (!success) return false;
+    if (!result.first->send_control_cmd(frame_id, 0xFC)) return false;
     std::cout << "[DamiaoHW] Enabled motor " << can_id << " on " << bus_name << std::endl;
     return true;
 }
