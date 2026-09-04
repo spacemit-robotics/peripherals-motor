@@ -275,6 +275,7 @@ static int encos_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
 static int encos_get_state(struct motor_dev *dev, struct motor_state *state) {
     struct encos_priv *priv = dev ? dev->priv_data : NULL;
     struct can_frame frame;
+    int result;
 
     if (!priv || !state || !priv->initialized || drain_bus(priv->bus) < 0) return -1;
     pthread_mutex_lock(&priv->bus->mutex);
@@ -285,7 +286,9 @@ static int encos_get_state(struct motor_dev *dev, struct motor_state *state) {
     frame = priv->bus->frames[priv->config.feedback_id];
     priv->bus->frame_valid[priv->config.feedback_id] = false;
     pthread_mutex_unlock(&priv->bus->mutex);
-    return encos_decode_feedback(&priv->config.limits, frame.data, state);
+    result = encos_decode_feedback(&priv->config.limits, frame.data, state);
+    if (result == 0 && state->err == 0x04U) state->err = 0;
+    return result;
 }
 
 static void encos_free(struct motor_dev *dev) {
