@@ -83,6 +83,13 @@ struct motor_dev;
 /* --- vectorized API --- */
 
 int motor_init(struct motor_dev **devs, uint32_t count);
+
+/**
+ * @brief Attempt all commands and return the first negative driver result, or zero.
+ *
+ * On failure, errno preserves the first failing driver's system error, or zero
+ * when the driver supplies no system error. Later commands are still attempted.
+ */
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
                     uint32_t count);
 int motor_get_states(struct motor_dev **devs, struct motor_state *states,

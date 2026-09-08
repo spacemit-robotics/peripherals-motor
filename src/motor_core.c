@@ -229,9 +229,12 @@ int motor_init(struct motor_dev **devs, uint32_t count) {
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
     uint32_t count) {
     int result = 0;
+    int first_errno = 0;
 
-    if ((!devs || !cmds) && count > 0)
+    if ((!devs || !cmds) && count > 0) {
+        errno = EINVAL;
         return -1;
+    }
 
     for (uint32_t i = 0; i < count; i++) {
         int ret;
@@ -239,10 +242,14 @@ int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
         if (!devs[i] || !devs[i]->ops || !devs[i]->ops->set_cmd) {
             continue;
         }
+        errno = 0;
         ret = devs[i]->ops->set_cmd(devs[i], &cmds[i]);
-        if (ret < 0 && result == 0)
+        if (ret < 0 && result == 0) {
             result = ret;
+            first_errno = errno;
+        }
     }
+    errno = first_errno;
     return result;
 }
 

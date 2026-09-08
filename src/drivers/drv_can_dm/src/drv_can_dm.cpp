@@ -6,6 +6,7 @@
  * @brief Damiao driver registration and generic motor API operations.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -250,8 +251,10 @@ static int dm1_set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     const int result = damiao_set_cmd(priv->bus_name, priv->can_id, cmd->mode,
         cmd->pos_des, cmd->vel_des, cmd->trq_des, cmd->kp, cmd->kd);
     if (result < 0 && priv->enabled) {
+        const int command_errno = errno;
         if (damiao_disable(priv->bus_name, priv->can_id) == 0)
             priv->enabled = false;
+        errno = command_errno;
     }
     return result;
 }

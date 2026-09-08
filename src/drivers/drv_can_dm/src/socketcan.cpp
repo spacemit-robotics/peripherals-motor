@@ -1,4 +1,8 @@
-/*******************************************************************************
+/**
+ * @file socketcan.cpp
+ * @brief SocketCAN transport for Damiao motor commands and feedback.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * BSD 3-Clause License
  *
  * Copyright (c) 2021, Qiayuan Liao
@@ -39,6 +43,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
+#include <cerrno>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -130,12 +135,15 @@ bool SocketCAN::write(const can_frame* frame) const {
     if (!isOpen()) {
         // ROS_ERROR_THROTTLE(5., "Unable to write: Socket %s not open", interface_request_.ifr_name);
         log_throttled_error(interface_request_.ifr_name);
+        errno = ENOTCONN;
         return false;
     }
     const ssize_t written = ::write(sock_fd_, frame, sizeof(can_frame));
     if (written != static_cast<ssize_t>(sizeof(can_frame))) {
+        const int write_errno = written < 0 ? errno : EIO;
         // ROS_DEBUG_THROTTLE(5., "Unable to write: The %s tx buffer may be full", interface_request_.ifr_name);
         log_throttled_error(interface_request_.ifr_name);
+        errno = write_errno;
         return false;
     }
     return true;

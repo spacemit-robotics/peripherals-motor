@@ -7,6 +7,7 @@
  */
 
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 struct fake_motor {
     int init_result;
     int set_result;
+    int set_errno;
     int get_result;
     int set_calls;
     int get_calls;
@@ -31,6 +33,7 @@ static int fake_set(struct motor_dev *dev, const struct motor_cmd *command) {
     struct fake_motor *fake = dev ? dev->priv_data : NULL;
     if (!fake || !command) return -1;
     ++fake->set_calls;
+    if (fake->set_errno != 0) errno = fake->set_errno;
     return fake->set_result;
 }
 
@@ -114,6 +117,25 @@ int main(void) {
     assert(motor_set_cmds(motors, commands, 2) == -7);
     assert(fake_data(motors[0])->set_calls == 1);
     assert(fake_data(motors[1])->set_calls == 1);
+
+    fake_data(motors[0])->set_result = -1;
+    fake_data(motors[0])->set_errno = ENOBUFS;
+    fake_data(motors[1])->set_errno = ENETDOWN;
+    assert(motor_set_cmds(motors, commands, 2) == -1);
+    assert(errno == ENOBUFS);
+    assert(fake_data(motors[0])->set_calls == 2);
+    assert(fake_data(motors[1])->set_calls == 2);
+    fake_data(motors[0])->set_result = 0;
+    fake_data(motors[0])->set_errno = 0;
+    assert(motor_set_cmds(motors, commands, 2) == -7);
+    assert(errno == ENETDOWN);
+    fake_data(motors[1])->set_errno = 0;
+    errno = EBUSY;
+    assert(motor_set_cmds(motors, commands, 2) == -7);
+    assert(errno == 0);
+    fake_data(motors[1])->set_result = 0;
+    assert(motor_set_cmds(motors, commands, 2) == 0);
+    assert(errno == 0);
 
     fake_data(motors[1])->get_result = -8;
     assert(motor_get_states(motors, states, 2) == -8);

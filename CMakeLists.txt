@@ -813,6 +813,24 @@ if(BUILD_TESTS)
         endif()
         install(TARGETS test_encos_protocol RUNTIME DESTINATION bin)
         add_test(NAME encos_protocol COMMAND test_encos_protocol)
+
+        add_executable(test_encos_write_errors
+            ${CAN_ENCOS_DRIVER_PATH}/test/test_encos_write_errors.c
+            ${CAN_ENCOS_DRIVER_PATH}/src/drv_can_encos.c
+            ${CAN_ENCOS_DRIVER_PATH}/src/encos_protocol.c
+            src/motor_core.c
+        )
+        target_include_directories(test_encos_write_errors PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CAN_ENCOS_DRIVER_PATH}/include
+        )
+        target_compile_options(test_encos_write_errors PRIVATE -UNDEBUG)
+        target_link_libraries(test_encos_write_errors PRIVATE m pthread
+            -Wl,--wrap=socket,--wrap=ioctl,--wrap=fcntl
+            -Wl,--wrap=bind,--wrap=close,--wrap=write)
+        install(TARGETS test_encos_write_errors RUNTIME DESTINATION bin)
+        add_test(NAME encos_write_errors COMMAND test_encos_write_errors)
     endif()
 
     if(BUILD_CAN_AGIBOT_DRIVER)

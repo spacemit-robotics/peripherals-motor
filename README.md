@@ -9,6 +9,11 @@
     - **控制模式**：支持空闲 (IDLE)、速度 (VEL)、位置 (POS)、力矩 (TRQ)、MIT 阻抗控制 (HYBRID) 以及 EtherCAT 同步模式 (CSP/CSV/PP/PV/HM)。
     - **API 特性**：支持向量化批量操作 api，具备自动驱动注册机制。
 
+`motor_set_cmds()` 会尝试发送整批命令，并返回第一个失败的驱动返回值。
+失败时，`errno` 保留该驱动提供的系统错误；驱动未提供系统错误时为零。
+需要逐电机诊断的调用方可使用 `motor_set_cmd_one()`，在每次失败返回后立即读取
+返回值和 `errno`。反馈中的 `motor_state.err` 是电机硬件故障码，与发送错误不同。
+
  **软件框图**：
    ![](assets/motor_architecture.png)
    

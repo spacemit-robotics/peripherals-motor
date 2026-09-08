@@ -13,6 +13,7 @@ tests:
       test_motor_core
       test_damiao_protocol
       test_encos_protocol
+      test_encos_write_errors
       test_agibot_protocol
       bash components/peripherals/motor/tests/test_functional.sh
   - name: motor-manual
