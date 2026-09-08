@@ -56,6 +56,7 @@ struct motor_dev {
     const char *name;
     const struct motor_ops *ops;
     void *priv_data;  // 私有数据
+    uint64_t feedback_timestamp_us;
 };
 
 /* 5. 通用工厂函数类型 */

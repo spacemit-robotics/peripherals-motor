@@ -9,6 +9,7 @@
 #include "damiao.h"
 
 #include <signal.h>
+#include <time.h>
 
 #include <iostream>
 #include <memory>
@@ -46,12 +47,14 @@ Motor::Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id,
     this->limit_param = custom_limits ? *custom_limits : damiao::limit_param[motor_type];
 }
 
-void Motor::receive_data(float q, float dq, float tau, float temperature, uint32_t error) {
+void Motor::receive_data(float q, float dq, float tau, float temperature,
+        uint32_t error, uint64_t timestamp_us) {
     this->state_q = q;
     this->state_dq = dq;
     this->state_tau = tau;
     this->state_temperature = temperature;
     this->state_error = error;
+    this->state_timestamp_us = timestamp_us;
     ++this->state_sequence;
 }
 
@@ -615,18 +618,24 @@ void Motor_Control::read() {
         m.second.effort = it->Get_tau();
         m.second.temperature = it->GetTemperature();
         m.second.error = it->GetError();
+        m.second.feedback_timestamp_us = it->GetStateTimestampUs();
         m.second.feedback_sequence = it->GetStateSequence();
         // std::cerr<<"MotorType: "<<it->GetMotorType()<<std::endl;
     }
 }
 
 void Motor_Control::canframeCallback(const can_frame& frame) {
+    struct timespec receive_time = {};
+    clock_gettime(CLOCK_MONOTONIC, &receive_time);
+    const uint64_t timestamp_us =
+        static_cast<uint64_t>(receive_time.tv_sec) * 1000000ULL +
+        static_cast<uint64_t>(receive_time.tv_nsec) / 1000ULL;
     // 使用std::lock_guard自动管理mutex_的锁定和解锁，以确保线程安全
     // 当guard对象被创建时，它会自动锁定mutex_；当guard对象被销毁（例如，离开作用域时），它会自动解锁mutex_
     std::lock_guard<std::mutex> guard(mutex_);
     // CanFrameStamp can_frame_stamp{ .frame = frame, .stamp =
     // std::chrono::system_clock::now() };
-    CanFrameStamp can_frame_stamp{.frame = frame};
+    CanFrameStamp can_frame_stamp{.frame = frame, .timestamp_us = timestamp_us};
     read_buffer_.push_back(can_frame_stamp);
     // 注意：由于std::lock_guard的作用域是函数体内部，当frameCallback函数返回时，
     // guard对象会被销毁，自动解锁mutex_，因此不需要手动解锁
@@ -661,7 +670,8 @@ void Motor_Control::canframeCallback(const can_frame& frame) {
                 continue;
             }
             m->receive_data(
-                receive_q, receive_dq, receive_tau, receive_temperature, receive_error);
+                receive_q, receive_dq, receive_tau, receive_temperature,
+                receive_error, frame_stamp.timestamp_us);
             // m->frequency = 1. / (frame_stamp.stamp -  m->stamp).toSec();
 
             // m->stamp = frame_stamp.stamp;

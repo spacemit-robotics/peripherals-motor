@@ -255,15 +255,30 @@ int motor_get_states(struct motor_dev **devs, struct motor_state *states,
 
     for (uint32_t i = 0; i < count; i++) {
         int ret;
+        uint64_t previous_timestamp_us;
 
         if (!devs[i] || !devs[i]->ops || !devs[i]->ops->get_state) {
             continue;
         }
+        previous_timestamp_us = devs[i]->feedback_timestamp_us;
+        devs[i]->feedback_timestamp_us = 0;
         ret = devs[i]->ops->get_state(devs[i], &states[i]);
+        if (ret < 0)
+            devs[i]->feedback_timestamp_us = previous_timestamp_us;
         if (ret < 0 && result == 0)
             result = ret;
     }
     return result;
+}
+
+int motor_get_feedback_timestamps(struct motor_dev **devs,
+    uint64_t *timestamps_us, uint32_t count) {
+    if ((!devs || !timestamps_us) && count > 0)
+        return -1;
+
+    for (uint32_t i = 0; i < count; i++)
+        timestamps_us[i] = devs[i] ? devs[i]->feedback_timestamp_us : 0;
+    return 0;
 }
 
 void motor_free(struct motor_dev **devs, uint32_t count) {

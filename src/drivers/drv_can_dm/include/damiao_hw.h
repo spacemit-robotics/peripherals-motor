@@ -83,7 +83,8 @@ public:
     DmActData* getMotorData(const std::string& bus_name, uint16_t can_id);
 
     bool getMotorState(const std::string& bus_name, uint16_t can_id,
-        float* position, float* velocity, float* torque, float* temperature, uint32_t* error);
+        float* position, float* velocity, float* torque, float* temperature,
+        uint32_t* error, uint64_t* timestamp_us);
     bool validateMitCommand(const std::string& bus_name, uint16_t can_id,
         float position, float velocity, float torque, float kp, float kd);
 

@@ -266,13 +266,15 @@ static int dm1_get_state(struct motor_dev* dev, struct motor_state* state) {
 
     float pos, vel, trq, temperature;
     uint32_t error;
+    uint64_t timestamp_us;
     if (damiao_get_state(priv->bus_name, priv->can_id, &pos, &vel, &trq,
-        &temperature, &error) == 0) {
+        &temperature, &error, &timestamp_us) == 0) {
         state->pos = pos;
         state->vel = vel;
         state->trq = trq;
         state->temp = temperature;
         state->err = error;
+        dev->feedback_timestamp_us = timestamp_us;
         return 0;
     }
     return -1;

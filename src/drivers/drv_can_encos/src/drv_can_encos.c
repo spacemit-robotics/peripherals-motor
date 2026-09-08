@@ -20,6 +20,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "encos_protocol.h"
@@ -33,6 +34,7 @@ struct encos_bus {
     int fd;
     uint32_t references;
     struct can_frame frames[ENCOS_MAX_CAN_ID + 1U];
+    uint64_t frame_timestamp_us[ENCOS_MAX_CAN_ID + 1U];
     bool frame_valid[ENCOS_MAX_CAN_ID + 1U];
     pthread_mutex_t mutex;
     struct encos_bus *next;
@@ -78,6 +80,14 @@ static const uint8_t kEnableCommand[3] = {0x71, 0x03, 0xe8};
 static const uint8_t kDisableCommand[3] = {0x6d, 0x00, 0x00};
 static struct encos_bus *g_buses;
 static pthread_mutex_t g_buses_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static uint64_t monotonic_time_us(void) {
+    struct timespec time;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time) != 0) return 0;
+    return (uint64_t)time.tv_sec * 1000000ULL +
+        (uint64_t)time.tv_nsec / 1000ULL;
+}
 
 static int get_model_limits(const char *model, struct encos_protocol_limits *limits) {
     size_t index;
@@ -198,6 +208,7 @@ static int drain_bus(struct encos_bus *bus) {
             if ((frame.can_id & unsupported_flags) == 0U &&
                 can_id <= ENCOS_MAX_CAN_ID && frame.can_dlc == CAN_MAX_DLEN) {
                 bus->frames[can_id] = frame;
+                bus->frame_timestamp_us[can_id] = monotonic_time_us();
                 bus->frame_valid[can_id] = true;
             }
             continue;
@@ -284,10 +295,11 @@ static int encos_get_state(struct motor_dev *dev, struct motor_state *state) {
         return -1;
     }
     frame = priv->bus->frames[priv->config.feedback_id];
+    dev->feedback_timestamp_us =
+        priv->bus->frame_timestamp_us[priv->config.feedback_id];
     priv->bus->frame_valid[priv->config.feedback_id] = false;
     pthread_mutex_unlock(&priv->bus->mutex);
     result = encos_decode_feedback(&priv->config.limits, frame.data, state);
-    if (result == 0 && state->err == 0x04U) state->err = 0;
     return result;
 }
 

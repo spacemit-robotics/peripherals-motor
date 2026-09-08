@@ -44,6 +44,7 @@ bool DamiaoHW::init(const std::vector<MotorConfig>& motor_configs) {
                                                                 .effort = 0,
                                                                 .temperature = 0,
                                                                 .error = 0,
+                                                                .feedback_timestamp_us = 0,
                                                                 .cmd_pos = 0,
                                                                 .cmd_vel = 0,
                                                                 .cmd_effort = 0,
@@ -90,8 +91,10 @@ DmActData* DamiaoHW::getMotorData(const std::string& bus_name, uint16_t can_id) 
 }
 
 bool DamiaoHW::getMotorState(const std::string& bus_name, uint16_t can_id,
-        float* position, float* velocity, float* torque, float* temperature, uint32_t* error) {
-    if (!position || !velocity || !torque || !temperature || !error) return false;
+        float* position, float* velocity, float* torque, float* temperature,
+        uint32_t* error, uint64_t* timestamp_us) {
+    if (!position || !velocity || !torque || !temperature || !error || !timestamp_us)
+        return false;
     std::lock_guard<std::mutex> lock(state_mutex_);
     auto bus_it = bus_motor_data_.find(bus_name);
     if (bus_it == bus_motor_data_.end()) return false;
@@ -106,6 +109,7 @@ bool DamiaoHW::getMotorState(const std::string& bus_name, uint16_t can_id,
     *torque = static_cast<float>(motor_it->second.effort);
     *temperature = static_cast<float>(motor_it->second.temperature);
     *error = motor_it->second.error;
+    *timestamp_us = motor_it->second.feedback_timestamp_us;
     motor_it->second.consumed_sequence = motor_it->second.feedback_sequence;
     return true;
 }

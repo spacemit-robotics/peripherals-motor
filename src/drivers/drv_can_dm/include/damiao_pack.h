@@ -70,7 +70,7 @@ int damiao_prepare_mode(const char* bus_name, uint16_t can_id, uint32_t mode);
 
 /* 3. 获取状态 */
 int damiao_get_state(const char* bus_name, uint16_t can_id, float* pos, float* vel, float* trq,
-        float* temperature, uint32_t* error);
+        float* temperature, uint32_t* error, uint64_t* timestamp_us);
 
 /* 4. 释放电机 */
 void damiao_release(const char* bus_name, uint16_t can_id);

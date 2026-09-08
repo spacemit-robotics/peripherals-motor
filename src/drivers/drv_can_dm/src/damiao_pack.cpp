@@ -296,10 +296,10 @@ int damiao_validate_mit_cmd(const char* bus_name, uint16_t can_id,
 // ========== 3. 获取状态 ==========
 
 int damiao_get_state(const char* bus_name, uint16_t can_id, float* pos, float* vel, float* trq,
-        float* temperature, uint32_t* error) {
+        float* temperature, uint32_t* error, uint64_t* timestamp_us) {
     if (!g_damiao_hw || !bus_name) return -1;
     return g_damiao_hw->getMotorState(
-        bus_name, can_id, pos, vel, trq, temperature, error) ? 0 : -1;
+        bus_name, can_id, pos, vel, trq, temperature, error, timestamp_us) ? 0 : -1;
 }
 
 // ========== 4. 释放电机 ==========
