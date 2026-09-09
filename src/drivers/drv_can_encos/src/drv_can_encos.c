@@ -20,6 +20,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "encos_protocol.h"
@@ -33,6 +34,7 @@ struct encos_bus {
     int fd;
     uint32_t references;
     struct can_frame frames[ENCOS_MAX_CAN_ID + 1U];
+    uint64_t frame_timestamp_us[ENCOS_MAX_CAN_ID + 1U];
     bool frame_valid[ENCOS_MAX_CAN_ID + 1U];
     pthread_mutex_t mutex;
     struct encos_bus *next;
@@ -78,6 +80,14 @@ static const uint8_t kEnableCommand[3] = {0x71, 0x03, 0xe8};
 static const uint8_t kDisableCommand[3] = {0x6d, 0x00, 0x00};
 static struct encos_bus *g_buses;
 static pthread_mutex_t g_buses_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static uint64_t monotonic_time_us(void) {
+    struct timespec time;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time) != 0) return 0;
+    return (uint64_t)time.tv_sec * 1000000ULL +
+        (uint64_t)time.tv_nsec / 1000ULL;
+}
 
 static int get_model_limits(const char *model, struct encos_protocol_limits *limits) {
     size_t index;
@@ -172,16 +182,27 @@ fail:
 static int write_frame(struct encos_bus *bus, uint16_t can_id, const uint8_t *data, uint8_t size) {
     struct can_frame frame = {0};
     ssize_t written;
+    int write_errno;
 
-    if (!bus || bus->fd < 0 || !data || size > CAN_MAX_DLEN) return -1;
+    if (!bus || !data || size > CAN_MAX_DLEN) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (bus->fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
     frame.can_id = can_id;
     frame.can_dlc = size;
     memcpy(frame.data, data, size);
 
     pthread_mutex_lock(&bus->mutex);
     written = write(bus->fd, &frame, sizeof(frame));
+    write_errno = written < 0 ? errno : EIO;
     pthread_mutex_unlock(&bus->mutex);
-    return written == (ssize_t)sizeof(frame) ? 0 : -1;
+    if (written == (ssize_t)sizeof(frame)) return 0;
+    errno = write_errno;
+    return -1;
 }
 
 static int drain_bus(struct encos_bus *bus) {
@@ -198,6 +219,7 @@ static int drain_bus(struct encos_bus *bus) {
             if ((frame.can_id & unsupported_flags) == 0U &&
                 can_id <= ENCOS_MAX_CAN_ID && frame.can_dlc == CAN_MAX_DLEN) {
                 bus->frames[can_id] = frame;
+                bus->frame_timestamp_us[can_id] = monotonic_time_us();
                 bus->frame_valid[can_id] = true;
             }
             continue;
@@ -235,8 +257,12 @@ static int encos_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
     struct encos_priv *priv = dev ? dev->priv_data : NULL;
     struct motor_cmd protocol_cmd;
     uint8_t data[ENCOS_COMMAND_FRAME_SIZE];
+    int command_errno;
 
-    if (!priv || !cmd || !priv->initialized) return -1;
+    if (!priv || !cmd || !priv->initialized) {
+        errno = EINVAL;
+        return -1;
+    }
     if (cmd->mode == MOTOR_MODE_IDLE) {
         if (write_frame(priv->bus, priv->command_id, kDisableCommand, sizeof(kDisableCommand)) < 0)
             return -1;
@@ -244,8 +270,10 @@ static int encos_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
         return 0;
     }
     if (cmd->mode != MOTOR_MODE_HYBRID && cmd->mode != MOTOR_MODE_POS &&
-        cmd->mode != MOTOR_MODE_VEL && cmd->mode != MOTOR_MODE_TRQ)
+        cmd->mode != MOTOR_MODE_VEL && cmd->mode != MOTOR_MODE_TRQ) {
+        errno = EOPNOTSUPP;
         return -1;
+    }
 
     protocol_cmd = *cmd;
     if (cmd->mode == MOTOR_MODE_VEL) {
@@ -258,17 +286,22 @@ static int encos_set_cmd(struct motor_dev *dev, const struct motor_cmd *cmd) {
         protocol_cmd.kp = 0.0f;
         protocol_cmd.kd = 0.0f;
     }
-    if (encos_encode_command(&priv->config.limits, &protocol_cmd, data) < 0) return -1;
+    if (encos_encode_command(&priv->config.limits, &protocol_cmd, data) < 0) {
+        errno = ERANGE;
+        return -1;
+    }
     if (!priv->enabled) {
         if (write_frame(priv->bus, priv->command_id, kEnableCommand, sizeof(kEnableCommand)) < 0)
             return -1;
         priv->enabled = true;
     }
     if (write_frame(priv->bus, priv->command_id, data, sizeof(data)) == 0) return 0;
+    command_errno = errno;
     if (write_frame(priv->bus, priv->command_id,
             kDisableCommand, sizeof(kDisableCommand)) == 0) {
         priv->enabled = false;
     }
+    errno = command_errno;
     return -1;
 }
 
@@ -284,10 +317,11 @@ static int encos_get_state(struct motor_dev *dev, struct motor_state *state) {
         return -1;
     }
     frame = priv->bus->frames[priv->config.feedback_id];
+    dev->feedback_timestamp_us =
+        priv->bus->frame_timestamp_us[priv->config.feedback_id];
     priv->bus->frame_valid[priv->config.feedback_id] = false;
     pthread_mutex_unlock(&priv->bus->mutex);
     result = encos_decode_feedback(&priv->config.limits, frame.data, state);
-    if (result == 0 && state->err == 0x04U) state->err = 0;
     return result;
 }
 

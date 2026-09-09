@@ -7,6 +7,7 @@
  */
 
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,9 +17,11 @@
 struct fake_motor {
     int init_result;
     int set_result;
+    int set_errno;
     int get_result;
     int set_calls;
     int get_calls;
+    uint64_t state_timestamp_us;
 };
 
 static int fake_init(struct motor_dev *dev) {
@@ -30,6 +33,7 @@ static int fake_set(struct motor_dev *dev, const struct motor_cmd *command) {
     struct fake_motor *fake = dev ? dev->priv_data : NULL;
     if (!fake || !command) return -1;
     ++fake->set_calls;
+    if (fake->set_errno != 0) errno = fake->set_errno;
     return fake->set_result;
 }
 
@@ -38,6 +42,7 @@ static int fake_get(struct motor_dev *dev, struct motor_state *state) {
     if (!fake || !state) return -1;
     ++fake->get_calls;
     state->pos = 1.0f;
+    dev->feedback_timestamp_us = fake->state_timestamp_us;
     return fake->get_result;
 }
 
@@ -94,6 +99,7 @@ int main(void) {
     struct motor_dev *sparse_motors[2];
     struct motor_cmd commands[2] = {0};
     struct motor_state states[2] = {0};
+    uint64_t timestamps_us[2] = {0};
 
     motor_driver_register(&driver);
     configured = motor_alloc_can_with_options(
@@ -112,21 +118,47 @@ int main(void) {
     assert(fake_data(motors[0])->set_calls == 1);
     assert(fake_data(motors[1])->set_calls == 1);
 
+    fake_data(motors[0])->set_result = -1;
+    fake_data(motors[0])->set_errno = ENOBUFS;
+    fake_data(motors[1])->set_errno = ENETDOWN;
+    assert(motor_set_cmds(motors, commands, 2) == -1);
+    assert(errno == ENOBUFS);
+    assert(fake_data(motors[0])->set_calls == 2);
+    assert(fake_data(motors[1])->set_calls == 2);
+    fake_data(motors[0])->set_result = 0;
+    fake_data(motors[0])->set_errno = 0;
+    assert(motor_set_cmds(motors, commands, 2) == -7);
+    assert(errno == ENETDOWN);
+    fake_data(motors[1])->set_errno = 0;
+    errno = EBUSY;
+    assert(motor_set_cmds(motors, commands, 2) == -7);
+    assert(errno == 0);
+    fake_data(motors[1])->set_result = 0;
+    assert(motor_set_cmds(motors, commands, 2) == 0);
+    assert(errno == 0);
+
     fake_data(motors[1])->get_result = -8;
     assert(motor_get_states(motors, states, 2) == -8);
     assert(states[0].pos == 1.0f);
+    assert(motor_get_feedback_timestamps(motors, timestamps_us, 2) == 0);
+    assert(timestamps_us[0] == 0U);
 
     sparse_motors[0] = motors[0];
     sparse_motors[1] = NULL;
     fake_data(motors[0])->set_result = 0;
     fake_data(motors[0])->get_result = 0;
+    fake_data(motors[0])->state_timestamp_us = 123U;
     assert(motor_init(sparse_motors, 2) == 0);
     assert(motor_set_cmds(sparse_motors, commands, 2) == 0);
     assert(motor_get_states(sparse_motors, states, 2) == 0);
+    assert(motor_get_feedback_timestamps(sparse_motors, timestamps_us, 2) == 0);
+    assert(timestamps_us[0] == 123U);
+    assert(timestamps_us[1] == 0U);
 
     assert(motor_init(NULL, 1) < 0);
     assert(motor_set_cmds(NULL, commands, 1) < 0);
     assert(motor_get_states(motors, NULL, 1) < 0);
+    assert(motor_get_feedback_timestamps(motors, NULL, 1) < 0);
     assert(motor_init(NULL, 0) == 0);
     motor_free(NULL, 1);
 

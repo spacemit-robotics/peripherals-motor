@@ -9,17 +9,31 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 #include "damiao_protocol.h"
+#include "socketcan.h"
 
 extern "C" {
 #include "motor.h"
 }
 
 int main() {
+    {
+        damiao::SocketCAN socket;
+        can_frame frame{};
+        errno = EBUSY;
+        assert(!socket.write(&frame));
+        assert(errno == ENOTCONN);
+        socket.sock_fd_ = std::numeric_limits<int>::max();
+        assert(!socket.write(&frame));
+        assert(errno == EBADF);
+        socket.sock_fd_ = -1;
+    }
     const damiao::Limit_param limits = {12.566f, 20.0f, 120.0f};
     const std::array<uint8_t, 8> expected = {
         0x7f,

@@ -27,7 +27,7 @@
 namespace damiao {
 struct CanFrameStamp {
     can_frame frame;
-    // ros::Time stamp;
+    uint64_t timestamp_us;
 };
 
 #pragma pack(1)
@@ -175,6 +175,7 @@ struct DmActData {
     double pos, vel, effort;              ///< 当前状态：位置(rad)、速度(rad/s)、力矩(Nm)
     double temperature;                   ///< MOS/转子温度的较大值 (degC)
     uint32_t error;                       ///< 转换后的驱动器错误码
+    uint64_t feedback_timestamp_us;       ///< 最新反馈的主机单调时钟（微秒）
     double cmd_pos, cmd_vel, cmd_effort;  ///< 命令值
     double kp, kd;                        ///< MIT 模式增益：位置刚度、阻尼
     Limit_param limits;                   ///< MIT 协议数值范围
@@ -201,7 +202,8 @@ private:
     float state_tau = 0.0;      ///< 当前力矩 (Nm)
     float state_temperature = 0.0;  ///< 当前最高电机温度 (degC)
     uint32_t state_error = 0;       ///< 当前转换后错误码
-    uint64_t state_sequence = 0; ///< 已接收反馈帧数量
+    uint64_t state_timestamp_us = 0;  ///< 最新反馈的主机单调时钟（微秒）
+    uint64_t state_sequence = 0;      ///< 已接收反馈帧数量
     Limit_param limit_param{};  ///< 电机限制参数
     DM_Motor_Type Motor_Type;   ///< 电机型号
     Control_Mode mode;          ///< 当前控制模式
@@ -238,7 +240,8 @@ public:
      * @param dq 速度 (rad/s)
      * @param tau 力矩 (Nm)
      */
-    void receive_data(float q, float dq, float tau, float temperature, uint32_t error);
+    void receive_data(float q, float dq, float tau, float temperature,
+        uint32_t error, uint64_t timestamp_us);
 
     /// @brief 获取电机型号
     DM_Motor_Type GetMotorType() const {
@@ -298,6 +301,11 @@ public:
     /// @brief 获取最新反馈序号，0 表示尚未收到反馈。
     uint64_t GetStateSequence() const {
         return state_sequence;
+    }
+
+    /// @brief 获取最新反馈帧的主机单调时间戳（微秒）。
+    uint64_t GetStateTimestampUs() const {
+        return state_timestamp_us;
     }
 
     /// @brief 设置控制模式

@@ -229,9 +229,12 @@ int motor_init(struct motor_dev **devs, uint32_t count) {
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
     uint32_t count) {
     int result = 0;
+    int first_errno = 0;
 
-    if ((!devs || !cmds) && count > 0)
+    if ((!devs || !cmds) && count > 0) {
+        errno = EINVAL;
         return -1;
+    }
 
     for (uint32_t i = 0; i < count; i++) {
         int ret;
@@ -239,10 +242,14 @@ int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
         if (!devs[i] || !devs[i]->ops || !devs[i]->ops->set_cmd) {
             continue;
         }
+        errno = 0;
         ret = devs[i]->ops->set_cmd(devs[i], &cmds[i]);
-        if (ret < 0 && result == 0)
+        if (ret < 0 && result == 0) {
             result = ret;
+            first_errno = errno;
+        }
     }
+    errno = first_errno;
     return result;
 }
 
@@ -255,15 +262,30 @@ int motor_get_states(struct motor_dev **devs, struct motor_state *states,
 
     for (uint32_t i = 0; i < count; i++) {
         int ret;
+        uint64_t previous_timestamp_us;
 
         if (!devs[i] || !devs[i]->ops || !devs[i]->ops->get_state) {
             continue;
         }
+        previous_timestamp_us = devs[i]->feedback_timestamp_us;
+        devs[i]->feedback_timestamp_us = 0;
         ret = devs[i]->ops->get_state(devs[i], &states[i]);
+        if (ret < 0)
+            devs[i]->feedback_timestamp_us = previous_timestamp_us;
         if (ret < 0 && result == 0)
             result = ret;
     }
     return result;
+}
+
+int motor_get_feedback_timestamps(struct motor_dev **devs,
+    uint64_t *timestamps_us, uint32_t count) {
+    if ((!devs || !timestamps_us) && count > 0)
+        return -1;
+
+    for (uint32_t i = 0; i < count; i++)
+        timestamps_us[i] = devs[i] ? devs[i]->feedback_timestamp_us : 0;
+    return 0;
 }
 
 void motor_free(struct motor_dev **devs, uint32_t count) {

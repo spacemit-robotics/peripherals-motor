@@ -83,10 +83,20 @@ struct motor_dev;
 /* --- vectorized API --- */
 
 int motor_init(struct motor_dev **devs, uint32_t count);
+
+/**
+ * @brief Attempt all commands and return the first negative driver result, or zero.
+ *
+ * On failure, errno preserves the first failing driver's system error, or zero
+ * when the driver supplies no system error. Later commands are still attempted.
+ */
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
                     uint32_t count);
 int motor_get_states(struct motor_dev **devs, struct motor_state *states,
                         uint32_t count);
+/** Host monotonic hardware receive times, or zero when unsupported. */
+int motor_get_feedback_timestamps(
+    struct motor_dev **devs, uint64_t *timestamps_us, uint32_t count);
 void motor_free(struct motor_dev **devs, uint32_t count);
 
 /* --- adjust parameters API --- */
@@ -126,6 +136,12 @@ static inline int motor_set_cmd_one(struct motor_dev *dev,
 static inline int motor_get_state_one(struct motor_dev *dev,
                                         struct motor_state *state) {
     return motor_get_states(&dev, state, 1);
+}
+
+/** Return the host monotonic hardware receive time, or zero when unsupported. */
+static inline int motor_get_feedback_timestamp_one(struct motor_dev *dev,
+                                                    uint64_t *timestamp_us) {
+    return motor_get_feedback_timestamps(&dev, timestamp_us, 1);
 }
 
 #ifdef __cplusplus

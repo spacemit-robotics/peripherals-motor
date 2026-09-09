@@ -9,6 +9,11 @@
     - **控制模式**：支持空闲 (IDLE)、速度 (VEL)、位置 (POS)、力矩 (TRQ)、MIT 阻抗控制 (HYBRID) 以及 EtherCAT 同步模式 (CSP/CSV/PP/PV/HM)。
     - **API 特性**：支持向量化批量操作 api，具备自动驱动注册机制。
 
+`motor_set_cmds()` 会尝试发送整批命令，并返回第一个失败的驱动返回值。
+失败时，`errno` 保留该驱动提供的系统错误；驱动未提供系统错误时为零。
+需要逐电机诊断的调用方可使用 `motor_set_cmd_one()`，在每次失败返回后立即读取
+返回值和 `errno`。反馈中的 `motor_state.err` 是电机硬件故障码，与发送错误不同。
+
  **软件框图**：
    ![](assets/motor_architecture.png)
    
@@ -352,9 +357,19 @@ int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds, uint32
 // 批量读取电机状态：获取所有电机的最新实时反馈数据
 int motor_get_states(struct motor_dev **devs, struct motor_state *states, uint32_t count);
 // devs: 电机设备数组, states: 状态数组(输出), count: 电机数量
+
+// 批量查询已读取状态的主机收帧时间
+int motor_get_feedback_timestamps(
+    struct motor_dev **devs, uint64_t *timestamps_us, uint32_t count);
+// devs: 电机设备数组, timestamps_us: 时间戳数组(输出，微秒), count: 电机数量
 ```
 
-批量接口跳过空设备槽位并返回第一个驱动错误，调用方必须检查返回值。
+命令下发与状态读取接口跳过空设备槽位并返回第一个驱动错误，调用方必须检查返回值。
+
+`motor_get_feedback_timestamps()` 在读取状态后调用，查询最近一次成功读取的状态所对应的
+主机收帧时间，使用单调时钟，单位为微秒；查询本身不接收新反馈。尚无有效反馈、驱动未提供
+时间戳或设备槽位为空时，对应输出项为 `0`。该时间不是电机内部采样时间。
+函数查询成功返回 `0`，参数无效返回负值。
 
 **3. 底层参数配置 (寄存器/对象字典)**
 ```c
