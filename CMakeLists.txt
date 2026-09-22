@@ -31,6 +31,9 @@ set(CAN_DDT_M152D133_DRIVER_PATH "src/drivers/drv_can_ddt_m152d133")
 # RS485 DDT M0601C111 driver path
 set(UART_485_DDT_M601C111_DRIVER_PATH "src/drivers/drv_485_ddt_m601c111")
 
+# M8010-A RS485 driver path
+set(UART_485_M8010A_DRIVER_PATH "src/drivers/drv_485_m8010a")
+
 
 # CAN DDT P1010B driver path
 set(CAN_DDT_P1010B_DRIVER_PATH "src/drivers/drv_can_ddt_p1010b")
@@ -81,6 +84,15 @@ if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
     set(_uart_485_ddt_m601c111_requested ON)
 elseif("drv_485_ddt_m601c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "485_ddt_m601c111" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
     set(_uart_485_ddt_m601c111_requested ON)
+endif()
+
+# Decide whether M8010-A RS485 driver is requested:
+set(_uart_485_m8010a_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_uart_485_m8010a_requested ON)
+elseif("drv_485_m8010a" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR
+       "485_m8010a" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_uart_485_m8010a_requested ON)
 endif()
 
 
@@ -221,6 +233,51 @@ if(_uart_485_ddt_m601c111_requested)
         if(NOT EXISTS "${UART_485_DDT_M601C111_DRIVER_PATH}")
             message(WARNING "RS485 DDT M0601C111 driver requested but not found at: ${UART_485_DDT_M601C111_DRIVER_PATH}")
         endif()
+    endif()
+endif()
+
+set(BUILD_UART_485_M8010A_DRIVER OFF)
+set(_m8010a_library "")
+if(_uart_485_m8010a_requested)
+    set(MOTOR_M8010A_LIBRARY "" CACHE FILEPATH "Prebuilt M8010-A library for the target architecture")
+    if(MOTOR_M8010A_LIBRARY)
+        get_filename_component(_m8010a_library "${MOTOR_M8010A_LIBRARY}" ABSOLUTE)
+        if(NOT EXISTS "${_m8010a_library}")
+            message(FATAL_ERROR
+                "M8010-A: MOTOR_M8010A_LIBRARY does not exist: ${_m8010a_library}")
+        endif()
+    else()
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _m8010a_arch)
+        set(_m8010a_library
+            "${CMAKE_CURRENT_SOURCE_DIR}/${UART_485_M8010A_DRIVER_PATH}/lib/${_m8010a_arch}/libdrv_485_m8010a.so")
+        if(NOT EXISTS "${_m8010a_library}")
+            if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+                message(STATUS
+                    "Skipping M8010-A: no prebuilt library for "
+                    "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
+            elseif(_m8010a_arch STREQUAL "riscv64")
+                message(FATAL_ERROR
+                    "M8010-A was explicitly requested, but the prebuilt riscv64 library is "
+                    "missing: ${_m8010a_library}")
+            else()
+                message(WARNING
+                    "M8010-A was explicitly requested, but no prebuilt library is available "
+                    "for ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}; skipping M8010-A")
+            endif()
+            set(_uart_485_m8010a_requested OFF)
+        endif()
+    endif()
+endif()
+
+if(_uart_485_m8010a_requested)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${UART_485_M8010A_DRIVER_PATH}")
+        set(BUILD_UART_485_M8010A_DRIVER ON)
+        message(STATUS "Found M8010-A RS485 driver at: ${UART_485_M8010A_DRIVER_PATH}")
+        set(UART_485_M8010A_SOURCES
+            ${UART_485_M8010A_DRIVER_PATH}/src/drv_485_m8010a.c
+        )
+    elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+        message(WARNING "M8010-A RS485 driver requested but not found at: ${UART_485_M8010A_DRIVER_PATH}")
     endif()
 endif()
 
@@ -471,6 +528,13 @@ if(BUILD_UART_485_DDT_M601C111_DRIVER)
     )
 endif()
 
+# Add M8010-A RS485 motor driver if available
+if(BUILD_UART_485_M8010A_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${UART_485_M8010A_SOURCES}
+    )
+endif()
+
 
 # Add P1010B CAN motor driver if available
 if(BUILD_CAN_DDT_P1010B_DRIVER)
@@ -528,6 +592,16 @@ set(MOTOR_SOURCES
 # Create static library
 add_library(motor STATIC ${MOTOR_SOURCES})
 set_target_properties(motor PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# The M8010-A implementation is distributed separately from the registration shim.
+if(BUILD_UART_485_M8010A_DRIVER)
+    add_library(motor::m8010a SHARED IMPORTED GLOBAL)
+    set_target_properties(motor::m8010a PROPERTIES
+        IMPORTED_LOCATION "${_m8010a_library}")
+    target_link_libraries(motor PUBLIC motor::m8010a)
+    install(FILES "${_m8010a_library}" DESTINATION lib)
+endif()
+
 
 # Find libgpiod only when a selected PWM driver needs it.
 if(BUILD_PWM_ROHS_DRIVER OR BUILD_PWM_GENERIC_DRIVER)
@@ -656,6 +730,14 @@ if(BUILD_UART_XL330_DRIVER)
     set(_MOTOR_EXTRA_LINK_LIBS "${_MOTOR_RUST_LIB}")
 endif()
 
+# The installed basename of the M8010-A library may differ from the default
+# when MOTOR_M8010A_LIBRARY points to a custom file; the exported config must
+# reference the file that is actually installed into lib/.
+set(_MOTOR_M8010A_LIB_BASENAME "libdrv_485_m8010a.so")
+if(BUILD_UART_485_M8010A_DRIVER)
+    get_filename_component(_MOTOR_M8010A_LIB_BASENAME "${_m8010a_library}" NAME)
+endif()
+
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in" [=[
 # motorConfig.cmake — auto-generated
 #
@@ -671,6 +753,12 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake.in" [=[
 #       -Wl,--whole-archive motor::motor -Wl,--no-whole-archive
 #       ${MOTOR_RUST_LIB}   # if non-empty
 #   )
+
+if(@BUILD_UART_485_M8010A_DRIVER@ AND NOT TARGET motor::m8010a)
+    add_library(motor::m8010a SHARED IMPORTED)
+    set_target_properties(motor::m8010a PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../../@_MOTOR_M8010A_LIB_BASENAME@")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/motorTargets.cmake")
 
@@ -1011,6 +1099,26 @@ if(BUILD_TESTS)
             )
             install(TARGETS test_m601_state RUNTIME DESTINATION bin)
         endif()
+    endif()
+
+    # Add M8010-A RS485 motor test if driver is built
+    if(BUILD_UART_485_M8010A_DRIVER)
+        add_executable(test_motor_485_m8010a tests/test_motor_485_m8010a.c)
+        target_compile_options(test_motor_485_m8010a PRIVATE -UNDEBUG)
+        set_target_properties(test_motor_485_m8010a PROPERTIES
+            LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib" INSTALL_RPATH "$ORIGIN/../lib")
+        target_include_directories(test_motor_485_m8010a PRIVATE
+            include
+            src
+        )
+        target_link_libraries(test_motor_485_m8010a
+            -Wl,--whole-archive
+            motor
+            -Wl,--no-whole-archive
+            pthread
+        )
+        install(TARGETS test_motor_485_m8010a RUNTIME DESTINATION bin)
+        add_test(NAME motor_485_m8010a COMMAND test_motor_485_m8010a)
     endif()
 
     # Add P1010B CAN motor test if driver is built
