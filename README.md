@@ -23,6 +23,7 @@
     | `include/motor.h` | 统一的对外 API 头文件 |
     | `src/motor_core.c` | 电机管理核心逻辑与工厂函数 |
     | `src/drivers/drv_485_ddt_m601c111/` | 本末 M0601C111 RS485 电机驱动实现 |
+    | `src/drivers/drv_485_m8010a/` | M8010-A RS485 电机驱动实现 |
     | `src/drivers/drv_can_ddt_m152d133/` | 本末 M152D133 CAN 电机驱动实现 |
     | `src/drivers/drv_can_ddt_p1010b/` | 本末 P1010B CAN 电机驱动实现 |
     | `src/drivers/drv_can_dm/` | 达妙 CAN 电机驱动实现 |
@@ -119,7 +120,8 @@ target/k3-humanoid-go1.json
 }
 
 ```
-使能 xl330 电机驱动、飞特电机驱动
+示例配置使能 xl330 和飞特电机驱动；使用 M8010-A 时，将
+`enabled_drivers` 改为 `["drv_485_m8010a"]`，或在已有列表中追加该名称。
 ### 3.1 【PWM 电机测试】
 
 **前置**：硬件连接具备 PWM 驱动能力的 GPIO 引脚。
@@ -442,4 +444,5 @@ struct motor_state {
 | **UART** | Dynamixel XL330 / XC330 | `drv_uart_xl330` | Reachy Mini 专用，含 python 绑定 |
 | **UART** | [本末 M0603C](src/drivers/drv_uart_ddt_m603c111/README.md)  | `drv_uart_ddt_m603c111` | 自带安全保护阈值，需注意位置积分漂移与归位反转风险 |
 | **RS485** | [本末 M0601C111](src/drivers/drv_485_ddt_m601c111/README.md)  | `drv_485_ddt_m601c111` | 一问一答最高 500Hz，提供电流/速度/位置环控制 |
+| **RS485** | [M8010-A](src/drivers/drv_485_m8010a/README.md) | `drv_485_m8010a` | 4 Mbps，支持 BRAKE/FOC 和共享总线 |
 | **PWM** | 通用步进电机/直流电机 | `drv_pwm_demo` / `drv_pwm_RoHS` | 需 GPIO/PWM 硬件支持 |
