@@ -185,8 +185,23 @@ struct motor_dev *motor_alloc_uart(const char *name, const char *dev_path,
         return NULL;
 
     struct motor_args_uart args_uart = {
-        .dev_path = dev_path, .baud = baud, .id = id, .args = args};
+        .dev_path = dev_path, .baud = baud, .id = id, .args = args,
+        .options = NULL, .option_count = 0};
     return drv->factory(&args_uart);
+}
+
+struct motor_dev *motor_alloc_uart_with_options(const char *name, const char *dev_path,
+    uint32_t baud, uint8_t id,
+    const struct motor_option *options, uint32_t option_count) {
+    struct driver_info *drv;
+    struct motor_args_uart uart = {
+        .dev_path = dev_path, .baud = baud, .id = id, .args = NULL,
+        .options = options, .option_count = option_count};
+
+    if (!dev_path || (!options && option_count > 0))
+        return NULL;
+    drv = find_driver(name, DRV_TYPE_UART);
+    return drv ? drv->factory(&uart) : NULL;
 }
 
 struct motor_dev *motor_alloc_pwm(const char *name, uint32_t ch, void *_args) {
@@ -278,6 +293,68 @@ int motor_get_states(struct motor_dev **devs, struct motor_state *states,
     return result;
 }
 
+static const struct motor_ops *common_ops(struct motor_dev **devs, uint32_t count) {
+    const struct motor_ops *ops = count && devs[0] ? devs[0]->ops : NULL;
+    for (uint32_t i = 0; i < count; ++i)
+        if (!devs[i] || devs[i]->ops != ops) return NULL;
+    return ops;
+}
+
+static int batch_result(const int *errors, uint32_t count) {
+    errno = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (errors[i]) {
+            errno = errors[i];
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int motor_get_states_ex(struct motor_dev **devs, struct motor_state *states,
+    int *errors, uint32_t count) {
+    const struct motor_ops *ops;
+    if ((!devs || !states || !errors) && count) {
+        errno = EINVAL;
+        return -1;
+    }
+    ops = common_ops(devs, count);
+    if (ops && ops->get_states) {
+        ops->get_states(devs, states, errors, count);
+    } else {
+        for (uint32_t i = 0; i < count; ++i) {
+            errors[i] = ENODEV;
+            if (!devs[i] || !devs[i]->ops || !devs[i]->ops->get_state) continue;
+            errno = 0;
+            errors[i] = motor_get_states(&devs[i], &states[i], 1) < 0
+                ? (errno ? errno : EIO) : 0;
+        }
+    }
+    return batch_result(errors, count);
+}
+
+int motor_set_cmds_ex(struct motor_dev **devs, const struct motor_cmd *cmds,
+    int *errors, uint32_t count) {
+    const struct motor_ops *ops;
+    if ((!devs || !cmds || !errors) && count) {
+        errno = EINVAL;
+        return -1;
+    }
+    ops = common_ops(devs, count);
+    if (ops && ops->set_cmds) {
+        ops->set_cmds(devs, cmds, errors, count);
+    } else {
+        for (uint32_t i = 0; i < count; ++i) {
+            errors[i] = ENODEV;
+            if (!devs[i] || !devs[i]->ops || !devs[i]->ops->set_cmd) continue;
+            errno = 0;
+            errors[i] = devs[i]->ops->set_cmd(devs[i], &cmds[i]) < 0
+                ? (errno ? errno : EIO) : 0;
+        }
+    }
+    return batch_result(errors, count);
+}
+
 int motor_get_feedback_timestamps(struct motor_dev **devs,
     uint64_t *timestamps_us, uint32_t count) {
     if ((!devs || !timestamps_us) && count > 0)
@@ -302,6 +379,20 @@ int motor_set_paras(struct motor_dev *dev, const void *address,
     if (dev && dev->ops && dev->ops->set_paras)
         return dev->ops->set_paras(dev, address, data, data_len);
     return -1;
+}
+
+int motor_get_transport_diagnostics(struct motor_dev *dev,
+    struct motor_transport_diagnostics *diagnostics) {
+    if (!dev || !diagnostics) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(diagnostics, 0, sizeof(*diagnostics));
+    if (!dev->ops || !dev->ops->get_transport_diagnostics) {
+        errno = ENOTSUP;
+        return -1;
+    }
+    return dev->ops->get_transport_diagnostics(dev, diagnostics);
 }
 
 int motor_get_paras(struct motor_dev *dev, const void *address, void *out_data,

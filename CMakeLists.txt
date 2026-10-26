@@ -473,6 +473,13 @@ if(_uart_xl330_requested)
 endif()
 
 # Core source files
+set(RS485_20_26_DRIVER_PATH "src/drivers/drv_uart_rs485_20_26")
+set(BUILD_RS485_20_26_DRIVER OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "" OR
+   "drv_uart_rs485_20_26" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(BUILD_RS485_20_26_DRIVER ON)
+endif()
+
 set(MOTOR_CORE_SOURCES
     src/motor_core.c
 )
@@ -584,6 +591,13 @@ if(BUILD_UART_XL330_DRIVER)
 endif()
 
 # All source files
+if(BUILD_RS485_20_26_DRIVER)
+    list(APPEND MOTOR_DRIVER_SOURCES
+        ${RS485_20_26_DRIVER_PATH}/src/rs485_20_26_protocol.c
+        ${RS485_20_26_DRIVER_PATH}/src/drv_uart_rs485_20_26.c)
+    include_directories(src ${RS485_20_26_DRIVER_PATH}/include)
+endif()
+
 set(MOTOR_SOURCES
     ${MOTOR_CORE_SOURCES}
     ${MOTOR_DRIVER_SOURCES}
@@ -812,6 +826,18 @@ if(BUILD_TESTS)
     endif()
     install(TARGETS test_motor_core RUNTIME DESTINATION bin)
     add_test(NAME motor_core COMMAND test_motor_core)
+
+    if(BUILD_RS485_20_26_DRIVER)
+        foreach(test IN ITEMS rs485_20_26_protocol rs485_20_26_uart rs485_20_26_batch)
+            add_executable(test_${test} ${RS485_20_26_DRIVER_PATH}/test/test_${test}.c)
+            target_include_directories(test_${test} PRIVATE src ${RS485_20_26_DRIVER_PATH}/include)
+            target_compile_options(test_${test} PRIVATE -UNDEBUG)
+            target_link_libraries(test_${test} PRIVATE
+                -Wl,--whole-archive motor -Wl,--no-whole-archive)
+            add_test(NAME ${test} COMMAND test_${test})
+            set_tests_properties(${test} PROPERTIES TIMEOUT 10)
+        endforeach()
+    endif()
   
     # Add UART motor test (generic, supports feetech etc.) when Feetech driver is built
     if(BUILD_FEETECH_DRIVER)
