@@ -16,7 +16,35 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+
+ssize_t __real_write(int fd, const void *data, size_t size);
+int __real_clock_gettime(clockid_t clock, struct timespec *value);
+static int interrupt_writes;
+static unsigned int write_attempts;
+static uint64_t clock_advance_us;
+
+ssize_t __wrap_write(int fd, const void *data, size_t size) {
+    if (!interrupt_writes) return __real_write(fd, data, size);
+    ++write_attempts;
+    clock_advance_us += 10000;
+    if (interrupt_writes == 2 && write_attempts == 1)
+        return __real_write(fd, data, size > 3 ? 3 : size);
+    // Bound the mock itself so a missing driver deadline fails, not hangs.
+    errno = write_attempts < 100 ? EINTR : EIO;
+    return -1;
+}
+
+int __wrap_clock_gettime(clockid_t clock, struct timespec *value) {
+    const int result = __real_clock_gettime(clock, value);
+    if (!result && interrupt_writes && clock == CLOCK_MONOTONIC) {
+        value->tv_nsec += (long)(clock_advance_us % 1000000) * 1000;
+        value->tv_sec += (time_t)(clock_advance_us / 1000000) + value->tv_nsec / 1000000000;
+        value->tv_nsec %= 1000000000;
+    }
+    return result;
+}
 
 struct emulator {
     int fd;
@@ -102,6 +130,19 @@ int main(void) {
     assert(diagnostics.failure_errno == ETIMEDOUT && diagnostics.failure_missing_ids == (1U << 4));
     assert(diagnostics.failure_sent_bytes == RS485_20_26_COMMAND_SIZE && diagnostics.failure_rx_bytes == 0);
     assert(diagnostics.poll_errors == 0);
+    for (int mode = 1; mode <= 2; ++mode) {
+        interrupt_writes = mode;
+        write_attempts = 0;
+        clock_advance_us = 0;
+        assert(motor_set_cmd_one(dev, &command) < 0 && errno == ETIMEDOUT);
+        interrupt_writes = 0;
+        assert(write_attempts > 0 && write_attempts <= 5);
+        assert(motor_get_transport_diagnostics(dev, &diagnostics) == 0);
+        assert(diagnostics.timeouts == (uint64_t)(1 + mode));
+        assert(diagnostics.failure_errno == ETIMEDOUT);
+        assert(diagnostics.failure_sent_bytes == (uint32_t)(mode == 2 ? 3 : 0));
+        assert(diagnostics.write_errors == 0);
+    }
     motor_free(&dev, 1);
     close(master);
     return 0;

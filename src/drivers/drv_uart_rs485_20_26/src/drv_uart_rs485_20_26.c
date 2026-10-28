@@ -221,6 +221,11 @@ static int exchange(struct rs485_20_26_motor *motor, const struct rs485_20_26_co
     ++bus->diagnostics.transactions;
     deadline = start + motor->timeout_us;
     while (sent < sizeof(bytes)) {
+        const uint64_t now = monotonic_us();
+        if (!now || now >= deadline) {
+            errno = ETIMEDOUT;
+            goto failed;
+        }
         ssize_t size = write(bus->fd, bytes + sent, sizeof(bytes) - sent);
         if (size > 0) {
             sent += (size_t)size;

@@ -837,6 +837,8 @@ if(BUILD_TESTS)
             add_test(NAME ${test} COMMAND test_${test})
             set_tests_properties(${test} PROPERTIES TIMEOUT 10)
         endforeach()
+        target_link_options(test_rs485_20_26_uart PRIVATE
+            -Wl,--wrap=write -Wl,--wrap=clock_gettime)
     endif()
   
     # Add UART motor test (generic, supports feetech etc.) when Feetech driver is built
