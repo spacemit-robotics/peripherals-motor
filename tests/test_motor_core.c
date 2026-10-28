@@ -112,6 +112,11 @@ int main(void) {
     motors[1] = motor_alloc_can("fake_can", "vcan0", 2, NULL);
     assert(motors[0] != NULL && motors[1] != NULL);
     assert(motor_init(motors, 2) == 0);
+    struct motor_transport_diagnostics diagnostics = {.crc_errors = 99};
+    assert(motor_get_transport_diagnostics(motors[0], &diagnostics) < 0 && errno == ENOTSUP);
+    assert(diagnostics.crc_errors == 0);
+    assert(motor_get_transport_diagnostics(NULL, &diagnostics) < 0 && errno == EINVAL);
+    assert(motor_get_transport_diagnostics(motors[0], NULL) < 0 && errno == EINVAL);
 
     fake_data(motors[1])->set_result = -7;
     assert(motor_set_cmds(motors, commands, 2) == -7);
@@ -161,6 +166,22 @@ int main(void) {
     assert(motor_get_feedback_timestamps(motors, NULL, 1) < 0);
     assert(motor_init(NULL, 0) == 0);
     motor_free(NULL, 1);
+
+    // Additive batch API preserves fallback timestamps and attempts every motor.
+    int errors[2];
+    assert(motor_get_states_ex(motors, states, errors, 2) < 0);
+    assert(errors[0] == 0 && errors[1] == EIO);
+    fake_data(motors[0])->set_result = -1;
+    fake_data(motors[0])->set_errno = ENOBUFS;
+    const int calls = fake_data(motors[1])->set_calls;
+    assert(motor_set_cmds_ex(motors, commands, errors, 2) < 0);
+    assert(errors[0] == ENOBUFS && errors[1] == 0);
+    assert(fake_data(motors[1])->set_calls == calls + 1);
+    assert(motor_get_states_ex(sparse_motors, states, errors, 2) < 0);
+    assert(errors[0] == 0 && errors[1] == ENODEV);
+    assert(motor_get_states_ex(NULL, NULL, NULL, 0) == 0);
+    assert(motor_set_cmds_ex(NULL, NULL, NULL, 0) == 0);
+    assert(motor_set_cmds_ex(motors, commands, NULL, 2) < 0 && errno == EINVAL);
 
     motor_free(motors, 2);
     return 0;

@@ -24,6 +24,8 @@ struct motor_args_uart {
     uint32_t baud;
     uint8_t id; /* 级联电机ID，用于识别同一总线上的不同电机 */
     void *args;
+    const struct motor_option *options;
+    uint32_t option_count;
 };
 
 struct motor_args_pwm {
@@ -49,6 +51,13 @@ struct motor_ops {
                     uint32_t data_len);
     int (*get_paras)(struct motor_dev *dev, const void *address, void *out_data,
                     uint32_t data_len);
+    /* Optional vector operations; populate every per-device errno slot. */
+    void (*get_states)(struct motor_dev **devs, struct motor_state *states,
+        int *errors, uint32_t count);
+    void (*set_cmds)(struct motor_dev **devs, const struct motor_cmd *cmds,
+        int *errors, uint32_t count);
+    int (*get_transport_diagnostics)(struct motor_dev *dev,
+        struct motor_transport_diagnostics *diagnostics);
 };
 
 /* 4. 电机对象定义 */

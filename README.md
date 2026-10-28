@@ -34,6 +34,7 @@
     | `src/drivers/drv_pwm_generic.c` | 通用 PWM 电机驱动实现 |
     | `src/drivers/drv_pwm_RoHS.c` | RoHS PWM 电机驱动实现 |
     | `src/drivers/drv_uart_ddt_m603c111/` | 本末 M0603C UART 电机驱动实现 |
+    | `src/drivers/drv_uart_rs485_20_26/` | RS485 20/26 字节协议驱动 |
     | `src/drivers/drv_uart_feetech/` | Feetech UART 舵机驱动实现 |
     | `src/drivers/drv_uart_xl330/` | Reachy Mini xl330 电机驱动实现 |
     | `tests/` | 各类电机的功能测试代码 |
@@ -345,10 +346,11 @@ void motor_free(struct motor_dev **devs, uint32_t count);
 // devs: 电机设备数组指针, count: 电机数量
 ```
 
-配置驱动型上层使用 `motor_alloc_can_with_options()` 传入键值参数，原有
-`motor_alloc_can()` 保持兼容。具体选项见 [达妙](src/drivers/drv_can_dm/README_CAN_DM.md)、
-[Encos](src/drivers/drv_can_encos/README_CAN_ENCOS.md) 和
-[AGIBOT](src/drivers/drv_can_agibot/README_CAN_AGIBOT.md) 驱动文档。
+通过 `motor_alloc_can_with_options()` 或 `motor_alloc_uart_with_options()`
+向驱动传入 `motor_option` 键值参数；不带选项的分配接口保留。具体选项见 [达妙](src/drivers/drv_can_dm/README_CAN_DM.md)、
+[Encos](src/drivers/drv_can_encos/README_CAN_ENCOS.md)、
+[AGIBOT](src/drivers/drv_can_agibot/README_CAN_AGIBOT.md) 和
+[RS485 20/26](src/drivers/drv_uart_rs485_20_26/README.md) 驱动文档。
 
 **2. 核心控制与状态读取**
 ```c
@@ -372,6 +374,14 @@ int motor_get_feedback_timestamps(
 主机收帧时间，使用单调时钟，单位为微秒；查询本身不接收新反馈。尚无有效反馈、驱动未提供
 时间戳或设备槽位为空时，对应输出项为 `0`。该时间不是电机内部采样时间。
 函数查询成功返回 `0`，参数无效返回负值。
+
+`motor_get_states_ex()` / `motor_set_cmds_ex()` 额外返回逐设备错误码。
+支持批处理的驱动可共同调度多条总线；其他驱动逐设备调用。单台设备失败后仍会
+尝试其余设备，调用方需检查每项结果。设备创建、销毁和运行期调用应串行安排。
+
+`motor_get_transport_diagnostics()` 复制驱动已采集的通信诊断，不收发数据、不清零计数。
+返回内容包括收发字节、有效帧、校验/解码/读写错误和最近失败事务；未实现的驱动
+返回 `ENOTSUP`。共享总线的设备返回同一份总线快照，统计时应按总线去重。
 
 **3. 底层参数配置 (寄存器/对象字典)**
 ```c

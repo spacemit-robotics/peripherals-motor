@@ -66,6 +66,22 @@ struct motor_state {
     uint32_t err;
 };
 
+/** @brief Cumulative bus diagnostics, shared by devices on the same transport.
+ * Reads never send commands or clear counters. Unsupported drivers return ENOTSUP.
+ * Failure fields retain the last failed transaction across successful retries.
+ * Times use CLOCK_MONOTONIC; byte/frame deltas exclude the pre-write drain.
+ */
+struct motor_transport_diagnostics {
+    uint64_t rx_bytes, tx_bytes, valid_frames, crc_errors, decode_errors;
+    uint64_t resync_discarded_bytes, unknown_id_frames;
+    uint64_t read_errors, write_errors, poll_errors, transactions, timeouts;
+    uint64_t last_rx_us;
+    uint64_t last_failure_us, failure_elapsed_us, failure_deadline_late_us;
+    uint64_t failure_rx_bytes, failure_valid_frames, failure_crc_errors;
+    uint32_t failure_expected_bytes, failure_sent_bytes, failure_missing_ids;
+    int32_t failure_errno;
+};
+
 /**
  * @brief Driver option passed by configuration-driven upper layers.
  *
@@ -80,6 +96,9 @@ struct motor_option {
 /* opaque handle */
 struct motor_dev;
 
+int motor_get_transport_diagnostics(struct motor_dev *dev,
+    struct motor_transport_diagnostics *diagnostics);
+
 /* --- vectorized API --- */
 
 int motor_init(struct motor_dev **devs, uint32_t count);
@@ -93,7 +112,17 @@ int motor_init(struct motor_dev **devs, uint32_t count);
 int motor_set_cmds(struct motor_dev **devs, const struct motor_cmd *cmds,
                     uint32_t count);
 int motor_get_states(struct motor_dev **devs, struct motor_state *states,
-                        uint32_t count);
+    uint32_t count);
+
+/* Batch-capable variants. errors[i] is 0 or a positive errno value; all
+ * entries are attempted, including disable commands after another failure.
+ * Homogeneous drivers may service multiple buses together. Other drivers use
+ * their unchanged single-device callbacks. Failed reads do not refresh state
+ * timestamps. Callers must serialize operations and device destruction. */
+int motor_get_states_ex(struct motor_dev **devs, struct motor_state *states,
+    int *errors, uint32_t count);
+int motor_set_cmds_ex(struct motor_dev **devs, const struct motor_cmd *cmds,
+    int *errors, uint32_t count);
 /** Host monotonic hardware receive times, or zero when unsupported. */
 int motor_get_feedback_timestamps(
     struct motor_dev **devs, uint64_t *timestamps_us, uint32_t count);
@@ -118,7 +147,22 @@ struct motor_dev *motor_alloc_can_with_options(const char *name,
                                                 const struct motor_option *options,
                                                 uint32_t option_count);
 struct motor_dev *motor_alloc_uart(const char *name, const char *dev_path,
-                                    uint32_t baud, uint8_t id, void *args);
+    uint32_t baud, uint8_t id, void *args);
+
+/**
+ * @brief Allocate a UART motor using driver-specific key/value options.
+ * @param name Registered UART driver name.
+ * @param dev_path UART device path; allocation does not open the device.
+ * @param baud Requested serial baud rate.
+ * @param id Command endpoint on the shared bus.
+ * @param options Options consumed during allocation, not retained by the driver.
+ * @param option_count Number of entries; options may be NULL only when zero.
+ * @return Motor handle, or NULL for invalid/unsupported configuration.
+ * @note Call motor_init_one() before I/O. Existing motor_alloc_uart() is unchanged.
+ */
+struct motor_dev *motor_alloc_uart_with_options(const char *name, const char *dev_path,
+    uint32_t baud, uint8_t id,
+    const struct motor_option *options, uint32_t option_count);
 struct motor_dev *motor_alloc_ecat(const char *name, uint16_t slave_idx,
                                     void *args);
 
