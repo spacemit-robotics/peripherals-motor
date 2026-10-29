@@ -269,6 +269,8 @@ int position_raw(Device* d, float rad, uint16_t* out) {
     *out = static_cast<uint16_t>(std::lround(ticks));
     return 0;
 }
+int disarm(Device* d);
+
 int arm(Device* d) {
     if (d->armed) return 0;
     if (d->restore_p) return -1;  // finish the prior rollback through IDLE first
@@ -280,24 +282,30 @@ int arm(Device* d) {
         std::cerr << "[HD1910] torque is on and P gain differs from deployment contract\n";
         return -1;
     }
+    auto fail = [d, was_off]() {
+        if (was_off && d->restore_p && disarm(d)) {
+            std::cerr << "[HD1910] ID " << unsigned(d->id) << " rollback failed; retry IDLE\n";
+        }
+        return -1;
+    };
     if (was_off) {
         d->saved_p = p;
         d->restore_p = true;
-        if (write_byte(d, kP, d->firmware_p) || verify_byte(d, kP, d->firmware_p)) return -1;
+        if (write_byte(d, kP, d->firmware_p) || verify_byte(d, kP, d->firmware_p)) return fail();
     }
     if (write_byte(d, kD, 0) || verify_byte(d, kD, 0) ||
-        write_word(d, kTorqueLimit, kLimit) || verify_word(d, kTorqueLimit, kLimit)) return -1;
+        write_word(d, kTorqueLimit, kLimit) || verify_word(d, kTorqueLimit, kLimit)) return fail();
     if (was_off) {
         uint8_t pos[2]{};
-        if (read_bytes(d, kFeedback, pos, 2)) return -1;
+        if (read_bytes(d, kFeedback, pos, 2)) return fail();
         const uint16_t current = static_cast<uint16_t>(pos[0] | (pos[1] << 8));
-        if (write_target(d, current) || verify_word(d, kGoalPosition, current) || torque(d, true)) return -1;
+        if (write_target(d, current) || verify_word(d, kGoalPosition, current) || torque(d, true)) return fail();
     }
     d->armed = true;
     return 0;
 }
 int disarm(Device* d) {
-    if (d->armed && torque(d, false)) return -1;
+    if ((d->armed || d->restore_p) && torque(d, false)) return -1;
     d->armed = false;
     if (d->restore_p) {
         if (write_byte(d, kP, d->saved_p) || verify_byte(d, kP, d->saved_p)) return -1;
@@ -318,9 +326,9 @@ int set_cmd(struct motor_dev* dev, const struct motor_cmd* cmd) {
     std::lock_guard<std::mutex> lock(bus_mutex);
     if (cmd->mode == MOTOR_MODE_IDLE) return disarm(d);
     if (cmd->mode != MOTOR_MODE_POS) return -1;
-    if (arm(d)) return -1;
     uint16_t pos = 0;
     if (position_raw(d, cmd->pos_des, &pos)) return -1;
+    if (arm(d)) return -1;
     return write_target(d, pos);
 }
 void decode_state(Device* d, const uint8_t* raw, struct motor_state* state) {
@@ -356,7 +364,10 @@ void release(struct motor_dev* dev) {
     auto* d = static_cast<Device*>(dev->priv_data);
     if (d) {
         std::lock_guard<std::mutex> lock(bus_mutex);
-        if (d->armed) disarm(d);
+        if ((d->armed || d->restore_p) && disarm(d)) {
+            std::cerr << "[HD1910] ID " << unsigned(d->id)
+                << " release failed to confirm torque off and restore P\n";
+        }
         devices.erase(d->id);
         delete d;
     }
@@ -374,7 +385,7 @@ int set_paras(struct motor_dev* dev, const void* address, const void* data, uint
     std::lock_guard<std::mutex> lock(bus_mutex);
     return write_bytes(d, *static_cast<const uint8_t*>(address), static_cast<const uint8_t*>(data), static_cast<uint8_t>(n));
 }
-const struct motor_ops ops = {init, set_cmd, get_state, release, set_paras, get_paras};
+const struct motor_ops ops = {init, set_cmd, get_state, release, set_paras, get_paras, nullptr, nullptr, nullptr};
 struct motor_dev* factory(void* args) {
     if (!args) return nullptr;
     auto* ua = static_cast<motor_args_uart*>(args);
@@ -421,7 +432,19 @@ extern "C" int feetech_hd1910_set_cmds_sync(struct motor_dev **devs,
         batch.push_back(d);
         rows.insert(rows.end(), {d->id, static_cast<uint8_t>(pos), static_cast<uint8_t>(pos >> 8), 0, 0, 0, 0});
     }
-    for (auto* d : batch) if (arm(d)) return -1;
+    std::vector<Device*> newly_armed;
+    for (auto* d : batch) {
+        bool was_armed = d->armed;
+        if (arm(d)) {
+            for (auto* prior : newly_armed) {
+                if (disarm(prior)) {
+                    std::cerr << "[HD1910] ID " << unsigned(prior->id) << " batch rollback failed; retry IDLE\n";
+                }
+            }
+            return -1;
+        }
+        if (!was_armed && d->restore_p) newly_armed.push_back(d);
+    }
     return bus->sync_targets(rows);
 }
 

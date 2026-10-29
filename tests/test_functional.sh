@@ -12,6 +12,7 @@ function log_err() { echo -e "\033[31m[ERROR] $1\033[0m"; }
 function test_timeout() {
     local cmd="$1"
     local desc="$2"
+    local expected_output="${3:-}"
     ((TOTAL_TESTS++))
     log_info "--- 测试: $desc ---"
     
@@ -26,7 +27,8 @@ function test_timeout() {
     fi
 
     # 设定 3 秒超时，并使用数组方式安全传递参数，避免分词风险
-    timeout 3 "$tool_path" "${args[@]:1}" > /dev/null 2>&1
+    local output
+    output=$(timeout 3 "$tool_path" "${args[@]:1}" 2>&1)
     local exit_code=$?
 
     # 124 代表 timeout 触发（即程序挂起了）
@@ -49,27 +51,34 @@ function test_timeout() {
         FAILED_TESTS=$((FAILED_TESTS+1))
         return 1
     fi
+    if [[ -n "$expected_output" && "$output" != *"$expected_output"* ]]; then
+        log_err "FAIL: 未输出预期错误信息: $expected_output -> $cmd"
+        printf "%s\n" "$output" >&2
+        FAILED_TESTS=$((FAILED_TESTS+1))
+        return 1
+    fi
     log_info "PASS: 程序未挂起并正确抛错退出 (Exit code: $exit_code)"
     return 0
 }
 
 # 1. can
 # - 输入一个非法 can 口，执行 can 电机测试程序
-test_timeout "test_motor_can --driver drv_can_dm --if not_exist_can --id 2" "CAN 非法网口注入"
+test_timeout "test_motor_can --driver drv_can_dm --if not_exist_can --id 2" "CAN 非法网口注入" "Interface not_exist_can does not exist"
 
 # 2. uart
 # - xl330 输入非法 id、非法串口, 执行测试程序
-test_timeout "test_motor_xl330 --port /dev/not_exist_port --id 10" "UART xl330 非法串口注入"
+test_timeout "test_motor_uart --driver drv_uart_xl330 --port /dev/not_exist_port --id 10" "UART xl330 非法串口注入" "Initializing Reachy Mini motor(s) on /dev/not_exist_port"
 # - feetech 输入非法 id、非法串口，执行测试测试
-test_timeout "test_motor_uart --port /dev/not_exist_port --baud 1000000 --driver drv_uart_feetech --id 1" "UART feetech 非法串口注入"
+test_timeout "test_motor_uart --port /dev/not_exist_port --baud 1000000 --driver drv_uart_feetech --id 1" "UART feetech 非法串口注入" "dev_path=/dev/not_exist_port"
 
 # 3. ethercat
-# - 即使网络不存在或者参数非法，程序也应处理后立刻退出
-test_timeout "test_motor_ecat --nums -1 -c -1" "EtherCAT 非法参数注入"
+# - 无效电机数量必须在初始化硬件前被拒绝，并输出对应原因
+test_timeout "test_motor_ecat --driver drv_ethercat_jmc --nums -1" "EtherCAT 非法电机数量注入" "电机数量 -1 非法"
+test_timeout "test_motor_ecat --driver drv_ethercat_jmc --unknown-option" "EtherCAT 未知参数注入"
 
 # 4. canopen
 # - JMC CANopen 输入一个非法 can 口，执行测试程序
-test_timeout "test_motor_canopen_jmc --driver drv_canopen_jmc --if not_exist_can --id 1" "CANopen JMC 非法网口注入"
+test_timeout "test_motor_can --driver drv_canopen_jmc --if not_exist_can --id 1" "CANopen JMC 非法网口注入" "接口=not_exist_can"
 
 echo "=========================================="
 if [ $FAILED_TESTS -eq 0 ]; then

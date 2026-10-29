@@ -355,7 +355,10 @@ static const struct motor_ops feetech_ops = {.init = feetech_init,
     .get_state = feetech_get_state,
     .free = feetech_free,
     .set_paras = feetech_set_paras,
-    .get_paras = feetech_get_paras};
+    .get_paras = feetech_get_paras,
+    .get_states = nullptr,
+    .set_cmds = nullptr,
+    .get_transport_diagnostics = nullptr};
 
 // ==============================================================================
 // 工厂函数

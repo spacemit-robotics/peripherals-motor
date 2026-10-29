@@ -4,11 +4,11 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <string.h>
 #include "../include/motor.h"
 
 static int test_pwm_generic() {
@@ -330,17 +330,20 @@ static int test_pwm_gpio()
     return 0;
 }
 
-int main(int argc, char *argv[])
-{
-    int ret = 0;
-
-    // ret = test_pwm_generic();
-    ret = test_pwm_gpio();
-    ret = run_one_motor_test(1, 46, 43, 42, 83, 60, 2);
-    ret = run_one_motor_test(2, 34, 35, 36, 82, 60, 2);
-    ret = run_one_motor_test(3, 37, 38, 39, 61, 60, 2);
-
-    ret = run_multi_motor_test();
-
-    return ret;
+int main(int argc, char *argv[]) {
+    if (argc != 3 || strcmp(argv[1], "--driver")) {
+        fprintf(stderr, "Usage: %s --driver pwm_gpio|pwm_RoHS\n", argv[0]);
+        return 2;
+    }
+    if (!strcmp(argv[2], "pwm_gpio")) return test_pwm_gpio();
+    if (!strcmp(argv[2], "pwm_RoHS")) {
+        int ret = run_one_motor_test(1, 46, 43, 42, 83, 60, 2);
+        if (ret) return ret;
+        ret = run_one_motor_test(2, 34, 35, 36, 82, 60, 2);
+        if (ret) return ret;
+        ret = run_one_motor_test(3, 37, 38, 39, 61, 60, 2);
+        return ret ? ret : run_multi_motor_test();
+    }
+    fprintf(stderr, "Unsupported PWM driver: %s\n", argv[2]);
+    return 2;
 }

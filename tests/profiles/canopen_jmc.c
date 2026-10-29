@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "../include/motor.h"
+#include "motor.h"
 #include "test_config.h"
 
 #define MAX_CAN_MOTORS 16

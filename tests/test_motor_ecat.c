@@ -62,11 +62,26 @@ static void sleep_ms(uint32_t ms) {
 }
 
 int main(int argc, char** argv) {
+    int driver_count = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--driver")) {
+            if (++driver_count != 1 || i + 1 >= argc || strcmp(argv[++i], "drv_ethercat_jmc")) {
+                fprintf(stderr, "Specify --driver drv_ethercat_jmc\n");
+                return 2;
+            }
+        }
+    }
+    if (driver_count != 1) {
+        fprintf(stderr, "Specify --driver drv_ethercat_jmc\n");
+        return 2;
+    }
+
     int motor_count = 2;
     uint32_t cycle_ms = 2;
     int app_mode = MOTOR_MODE_POS;
 
-    static struct option long_opts[] = {{"motors", required_argument, 0, 'm'},
+    static struct option long_opts[] = {{"driver", required_argument, 0, 'd'},
+                                        {"motors", required_argument, 0, 'm'},
                                         {"nums", required_argument, 0, 'n'},
                                         {"cycle", required_argument, 0, 'c'},
                                         {"verbose", no_argument, 0, 'v'},
@@ -75,8 +90,10 @@ int main(int argc, char** argv) {
                                         {0, 0, 0, 0}};
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:n:c:vqh", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:m:n:c:vqh", long_opts, NULL)) != -1) {
         switch (opt) {
+            case 'd':
+                break;  // Validated before parsing.
             case 'm':
             case 'n':
                 motor_count = atoi(optarg);
@@ -95,9 +112,11 @@ int main(int argc, char** argv) {
                 g_verbose = 0;
                 break;
             case 'h':
-            default:
                 usage(argv[0]);
                 return 0;
+            default:
+                usage(argv[0]);
+                return 2;
         }
     }
 
@@ -112,7 +131,7 @@ int main(int argc, char** argv) {
 
     // 重新解析 argv，确保命令行显式指定的参数具有最高优先级
     optind = 1;
-    while ((opt = getopt_long(argc, argv, "m:n:c:vqh", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:m:n:c:vqh", long_opts, NULL)) != -1) {
         if (opt == 'm' || opt == 'n') motor_count = atoi(optarg);
     }
 

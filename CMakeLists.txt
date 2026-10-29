@@ -842,6 +842,7 @@ if(BUILD_TESTS)
     install(TARGETS test_motor_core RUNTIME DESTINATION bin)
     add_test(NAME motor_core COMMAND test_motor_core)
 
+
     if(BUILD_RS485_20_26_DRIVER)
         foreach(test IN ITEMS rs485_20_26_protocol rs485_20_26_uart rs485_20_26_batch)
             add_executable(test_${test} ${RS485_20_26_DRIVER_PATH}/test/test_${test}.c)
@@ -856,22 +857,69 @@ if(BUILD_TESTS)
             -Wl,--wrap=write -Wl,--wrap=clock_gettime)
     endif()
   
+    # One hardware test entry per bus; model-specific trajectories remain separate sources.
+    function(add_motor_bus_test name)
+        add_executable(${name} tests/${name}.c)
+        set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+        target_include_directories(${name} PRIVATE include src tests ${FEETECH_DRIVER_PATH}/include)
+        target_link_libraries(${name} -Wl,--whole-archive motor -Wl,--no-whole-archive pthread m)
+        install(TARGETS ${name} RUNTIME DESTINATION bin)
+    endfunction()
+    function(add_motor_profile target macro file function_name)
+        target_sources(${target} PRIVATE tests/profiles/${file}.c)
+        set_source_files_properties(tests/profiles/${file}.c PROPERTIES COMPILE_DEFINITIONS "main=profile_${function_name}")
+        target_compile_definitions(${target} PRIVATE HAVE_${macro})
+    endfunction()
+
+    if(BUILD_CAN_DM_DRIVER OR BUILD_CAN_DDT_M152D133_DRIVER OR BUILD_CAN_DDT_P1010B_DRIVER OR BUILD_CANOPEN_JMC_DRIVER)
+        add_motor_bus_test(test_motor_can)
+        if(BUILD_CAN_DM_DRIVER)
+            add_motor_profile(test_motor_can CAN_DM can_dm can_dm)
+        endif()
+        if(BUILD_CAN_DDT_M152D133_DRIVER)
+            add_motor_profile(test_motor_can CAN_M152 can_m152d133 can_m152d133)
+        endif()
+        if(BUILD_CAN_DDT_P1010B_DRIVER)
+            add_motor_profile(test_motor_can CAN_P1010 can_p1010b can_p1010b)
+        endif()
+        if(BUILD_CANOPEN_JMC_DRIVER)
+            add_motor_profile(test_motor_can CANOPEN canopen_jmc canopen_jmc)
+        endif()
+    endif()
+    if(BUILD_FEETECH_DRIVER OR BUILD_UART_XL330_DRIVER OR BUILD_UART_DDT_M603C111_DRIVER)
+        add_motor_bus_test(test_motor_uart)
+        if(BUILD_FEETECH_DRIVER)
+            add_motor_profile(test_motor_uart FEETECH uart_feetech uart_feetech)
+        endif()
+        if(BUILD_UART_XL330_DRIVER)
+            add_motor_profile(test_motor_uart XL330 uart_xl330 uart_xl330)
+        endif()
+        if(BUILD_UART_DDT_M603C111_DRIVER)
+            add_motor_profile(test_motor_uart UART_M603 uart_m603 uart_m603)
+        endif()
+    endif()
+    if(BUILD_UART_485_DDT_M601C111_DRIVER)
+        add_motor_bus_test(test_motor_485)
+        add_motor_profile(test_motor_485 RS485_M601 rs485_m601 rs485_m601)
+    endif()
+
     # Add UART motor test (generic, supports feetech etc.) when Feetech driver is built
     if(BUILD_FEETECH_DRIVER)
-        add_executable(test_motor_uart tests/test_motor_uart.c)
-        set_target_properties(test_motor_uart PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_uart PRIVATE
-            include
-            src
-            ${FEETECH_DRIVER_PATH}/include
-        )
-        target_link_libraries(test_motor_uart
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_uart RUNTIME DESTINATION bin)
+        if(_feetech_hd1910_requested)
+            find_program(MOTOR_PYTHON3_EXECUTABLE NAMES python3)
+            if(MOTOR_PYTHON3_EXECUTABLE)
+                add_library(test_hd1910_rollback_backend SHARED
+                    src/motor_core.c ${FEETECH_DRIVER_PATH}/src/feetech_hd1910_adapter.cpp)
+                target_include_directories(test_hd1910_rollback_backend PRIVATE
+                    include src ${FEETECH_DRIVER_PATH}/include)
+                target_link_libraries(test_hd1910_rollback_backend PRIVATE pthread)
+                add_test(NAME hd1910_rollback
+                    COMMAND ${MOTOR_PYTHON3_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/${FEETECH_DRIVER_PATH}/test/test_hd1910_rollback.py
+                        $<TARGET_FILE:test_hd1910_rollback_backend>)
+                set_tests_properties(hd1910_rollback PROPERTIES TIMEOUT 15)
+            endif()
+        endif()
 
         if(_feetech_hd1910_requested AND MOTOR_BUILD_FEETECH_DRIVER_TESTS)
             add_executable(test_hd1910_smoke
@@ -911,7 +959,7 @@ if(BUILD_TESTS)
     endif()
 
     # Add pwm motor test if driver is built
-    if(BUILD_PWM_GENERIC_DRIVER)
+    if(BUILD_PWM_GENERIC_DRIVER OR BUILD_PWM_ROHS_DRIVER)
         add_executable(test_motor_pwm tests/test_motor_pwm.c)
         set_target_properties(test_motor_pwm PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
         target_include_directories(test_motor_pwm PRIVATE
@@ -929,20 +977,6 @@ if(BUILD_TESTS)
     #
     # Add CAN DM motor test if driver is built
     if(BUILD_CAN_DM_DRIVER)
-        add_executable(test_motor_can tests/test_motor_can.c)
-        set_target_properties(test_motor_can PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_can PRIVATE
-            include
-            src
-            ${CAN_DM_DRIVER_PATH}/include
-        )
-        target_link_libraries(test_motor_can
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_can RUNTIME DESTINATION bin)
 
         add_executable(test_damiao_protocol
             ${CAN_DM_DRIVER_PATH}/test/test_damiao_protocol.cpp
@@ -1024,20 +1058,6 @@ if(BUILD_TESTS)
 
     # Add Benmo M15-2D-133 CAN motor test if driver is built
     if(BUILD_CAN_DDT_M152D133_DRIVER)
-        add_executable(test_motor_can_ddt_m152d133 tests/test_motor_can_ddt_m152d133.c)
-        set_target_properties(test_motor_can_ddt_m152d133 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_can_ddt_m152d133 PRIVATE
-            include
-            src
-            ${CAN_DDT_M152D133_DRIVER_PATH}/include
-        )
-        target_link_libraries(test_motor_can_ddt_m152d133
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_can_ddt_m152d133 RUNTIME DESTINATION bin)
 
         if(BUILD_DRIVER_EXTRA_TESTS)
             add_executable(test_m152d133 ${CAN_DDT_M152D133_DRIVER_PATH}/test/test_m152d133.cpp)
@@ -1108,19 +1128,6 @@ if(BUILD_TESTS)
 
     # Add RS485 DDT M0601C111 motor test if driver is built
     if(BUILD_UART_485_DDT_M601C111_DRIVER)
-        add_executable(test_motor_485_ddt_m601c111 tests/test_motor_485_ddt_m601c111.c)
-        set_target_properties(test_motor_485_ddt_m601c111 PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_485_ddt_m601c111 PRIVATE
-            include
-            src
-        )
-        target_link_libraries(test_motor_485_ddt_m601c111
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_485_ddt_m601c111 RUNTIME DESTINATION bin)
 
         if(BUILD_DRIVER_EXTRA_TESTS)
             add_executable(test_m601c ${UART_485_DDT_M601C111_DRIVER_PATH}/test/test_m601c.c)
@@ -1183,39 +1190,26 @@ if(BUILD_TESTS)
 
     # Add M8010-A RS485 motor test if driver is built
     if(BUILD_UART_485_M8010A_DRIVER)
-        add_executable(test_motor_485_m8010a tests/test_motor_485_m8010a.c)
-        target_compile_options(test_motor_485_m8010a PRIVATE -UNDEBUG)
-        set_target_properties(test_motor_485_m8010a PROPERTIES
+        add_executable(test_m8010a_unit tests/unit/test_motor_485_m8010a.c)
+        target_compile_options(test_m8010a_unit PRIVATE -UNDEBUG)
+        set_target_properties(test_m8010a_unit PROPERTIES
             LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib" INSTALL_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_485_m8010a PRIVATE
+        target_include_directories(test_m8010a_unit PRIVATE
             include
             src
         )
-        target_link_libraries(test_motor_485_m8010a
+        target_link_libraries(test_m8010a_unit
             -Wl,--whole-archive
             motor
             -Wl,--no-whole-archive
             pthread
         )
-        install(TARGETS test_motor_485_m8010a RUNTIME DESTINATION bin)
-        add_test(NAME motor_485_m8010a COMMAND test_motor_485_m8010a)
+        install(TARGETS test_m8010a_unit RUNTIME DESTINATION bin)
+        add_test(NAME motor_485_m8010a COMMAND test_m8010a_unit)
     endif()
 
     # Add P1010B CAN motor test if driver is built
     if(BUILD_CAN_DDT_P1010B_DRIVER)
-        add_executable(test_motor_can_ddt_p1010b tests/test_motor_can_ddt_p1010b.c)
-        set_target_properties(test_motor_can_ddt_p1010b PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_can_ddt_p1010b PRIVATE
-            include
-            src
-        )
-        target_link_libraries(test_motor_can_ddt_p1010b
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_can_ddt_p1010b RUNTIME DESTINATION bin)
 
         if(BUILD_DRIVER_EXTRA_TESTS)
             add_executable(test_p1010b ${CAN_DDT_P1010B_DRIVER_PATH}/test/test_p1010b.cpp)
@@ -1268,51 +1262,14 @@ if(BUILD_TESTS)
 
         endif()
 
-        add_executable(test_motor_uart_ddt_m603c111 tests/test_motor_uart_ddt_m603c111.c)
-        set_target_properties(test_motor_uart_ddt_m603c111 PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_uart_ddt_m603c111 PRIVATE
-            include
-        )
-        target_link_libraries(test_motor_uart_ddt_m603c111
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_uart_ddt_m603c111 RUNTIME DESTINATION bin)
     endif()
 
     # Add CANOpen JMC motor test if driver is built
     if(BUILD_CANOPEN_JMC_DRIVER)
-        add_executable(test_motor_canopen_jmc tests/test_motor_canopen_jmc.c)
-        set_target_properties(test_motor_canopen_jmc PROPERTIES LINKER_LANGUAGE C BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_canopen_jmc PRIVATE
-            include
-        )
-        target_link_libraries(test_motor_canopen_jmc
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_canopen_jmc RUNTIME DESTINATION bin)
     endif()
 
     # UART XL330 motor test (XL330/XC330)
     if(BUILD_UART_XL330_DRIVER)
-        add_executable(test_motor_xl330 tests/test_uart_xl330.c)
-        set_target_properties(test_motor_xl330 PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
-        target_include_directories(test_motor_xl330 PRIVATE
-            include
-            src
-        )
-        target_link_libraries(test_motor_xl330
-            -Wl,--whole-archive
-            motor
-            -Wl,--no-whole-archive
-            pthread
-        )
-        install(TARGETS test_motor_xl330 RUNTIME DESTINATION bin)
     endif()
 
 
