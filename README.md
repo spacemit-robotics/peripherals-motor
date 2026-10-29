@@ -35,7 +35,7 @@
     | `src/drivers/drv_pwm_RoHS.c` | RoHS PWM 电机驱动实现 |
     | `src/drivers/drv_uart_ddt_m603c111/` | 本末 M0603C UART 电机驱动实现 |
     | `src/drivers/drv_uart_rs485_20_26/` | RS485 20/26 字节协议驱动 |
-    | `src/drivers/drv_uart_feetech/` | Feetech UART 舵机驱动实现 |
+    | `src/drivers/drv_uart_feetech/` | Feetech STS3215 与 HD1910 UART 舵机驱动实现 |
     | `src/drivers/drv_uart_xl330/` | Reachy Mini xl330 电机驱动实现 |
     | `tests/` | 各类电机的功能测试代码 |
 
@@ -123,6 +123,8 @@ target/k3-humanoid-go1.json
 ```
 示例配置使能 xl330 和飞特电机驱动；使用 M8010-A 时，将
 `enabled_drivers` 改为 `["drv_485_m8010a"]`，或在已有列表中追加该名称。
+STS3215 也可显式使用 `drv_uart_feetech_sts3215`；HD1910 应使用
+`drv_uart_feetech_hd1910`，两种舵机适配可分别选择。
 ### 3.1 【PWM 电机测试】
 
 **前置**：硬件连接具备 PWM 驱动能力的 GPIO 引脚。
@@ -204,9 +206,28 @@ USB-485 A、B 分别与本末电机 信号线 ZH1.5*4P 的 A、B 相连，
 
 **步骤 1**：运行 Feetech 舵机测试。
 ```bash
-# 格式：test_motor_uart <串口> <波特率> <驱动名（默认drv_uart_feetech）> <电机数量>
-test_motor_uart /dev/ttyACM0 1000000 drv_uart_feetech 1
+# STS3215（旧注册名 drv_uart_feetech 也可用）
+test_motor_uart --driver drv_uart_feetech_sts3215 --port /dev/ttyACM0 --baud 1000000 --id 1
+
+# HD1910：读取反馈后相对当前位置移动指定弧度，然后 IDLE 卸力
+# 需在构建时启用 drv_uart_feetech_hd1910；确认机构有活动空间
+# --move-rad 必填，限 -0.5～0.5 rad；超范围会在打开串口前退出
+test_motor_uart --driver drv_uart_feetech_hd1910 --port /dev/ttyACM0 --baud 1000000 --id 1 --move-rad 0.3
+
 ```
+
+HD1910 多舵机同步运动与反馈用例单独构建（从 motor 目录执行）：
+
+```bash
+cmake -S src/drivers/drv_uart_feetech -B src/drivers/drv_uart_feetech/build
+cmake --build src/drivers/drv_uart_feetech/build --target test_hd1910_feedback
+src/drivers/drv_uart_feetech/build/test_hd1910_feedback /dev/ttyACM0 31 32 33
+```
+
+最后一行会使能所列舵机，并使每颗从当前位置向正方向移动 **0.1 rad**；先确认 ID、
+卸力状态及关节运动空间。用例随后同步读取 5 次反馈并尝试卸力。运行时任一 ID 缺失
+都可能导致整次同步读取失败；请先逐颗核对连接和 ID。模式、PD 配置、其他测试及
+验证范围见 [Feetech 驱动说明](src/drivers/drv_uart_feetech/README_UART_FEETECH.md#多舵机同步读写)。
 
 **步骤 2**：运行 Reachy Mini (XL330/XC330) 电机测试。
 ```bash
@@ -450,7 +471,8 @@ struct motor_state {
 | **CAN** | [本末 M152D133](src/drivers/drv_can_ddt_m152d133/README.md)  | `drv_can_ddt_m152d133` | 自动解算多圈位置，支持 PI 调节与反馈周期设置 |
 | **CAN** | [本末 P1010B](src/drivers/drv_can_ddt_p1010b/README.md)  | `drv_can_ddt_p1010b` | 组帧机制(一帧控多电机)，需注意制动及参数写入逻辑 |
 | **EtherCAT** | JMC IHSS42-EC | `drv_ethercat_jmc` | 集成式步进伺服 |
-| **UART** | Feetech STS3215  | `drv_uart_feetech` | 智能舵机 |
+| **UART** | Feetech STS3215 | `drv_uart_feetech_sts3215`（兼容 `drv_uart_feetech`） | 位置与速度控制 |
+| **UART** | [Feetech HD1910](src/drivers/drv_uart_feetech/README_UART_FEETECH.md#hd1910-专用驱动) | `drv_uart_feetech_hd1910` | 独立适配；位置控制与 IDLE 卸力，1 Mbps |
 | **UART** | Dynamixel XL330 / XC330 | `drv_uart_xl330` | Reachy Mini 专用，含 python 绑定 |
 | **UART** | [本末 M0603C](src/drivers/drv_uart_ddt_m603c111/README.md)  | `drv_uart_ddt_m603c111` | 自带安全保护阈值，需注意位置积分漂移与归位反转风险 |
 | **RS485** | [本末 M0601C111](src/drivers/drv_485_ddt_m601c111/README.md)  | `drv_485_ddt_m601c111` | 一问一答最高 500Hz，提供电流/速度/位置环控制 |

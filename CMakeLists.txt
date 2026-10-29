@@ -123,26 +123,39 @@ option(FEETECH_TIMESTAMP_DEBUG "Enable timestamp debug prints in feetech driver"
 set(_feetech_requested OFF)
 if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
     set(_feetech_requested ON)
-elseif("drv_uart_feetech" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR "feetech" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+elseif("drv_uart_feetech" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR
+       "drv_uart_feetech_sts3215" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS OR
+       "feetech" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
     set(_feetech_requested ON)
+endif()
+set(_feetech_hd1910_requested OFF)
+if("${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
+    set(_feetech_hd1910_requested ON)
+elseif("drv_uart_feetech_hd1910" IN_LIST SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS)
+    set(_feetech_hd1910_requested ON)
 endif()
 
 set(BUILD_FEETECH_DRIVER OFF)
-if(_feetech_requested)
+if(_feetech_requested OR _feetech_hd1910_requested)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${FEETECH_DRIVER_PATH}")
         set(BUILD_FEETECH_DRIVER ON)
         message(STATUS "Found Feetech driver at: ${FEETECH_DRIVER_PATH}")
 
         include_directories(${FEETECH_DRIVER_PATH}/include)
         set(FEETECH_SOURCES
-            ${FEETECH_DRIVER_PATH}/src/feetech_motor_adapter.cpp
-            ${FEETECH_DRIVER_PATH}/src/feetech_pack.cpp
-            ${FEETECH_DRIVER_PATH}/src/SMS_STS.cpp
-            ${FEETECH_DRIVER_PATH}/src/SCS.cpp
-            ${FEETECH_DRIVER_PATH}/src/SCSCL.cpp
-            ${FEETECH_DRIVER_PATH}/src/SCSerial.cpp
-            ${FEETECH_DRIVER_PATH}/src/HLSCL.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/feetech_pack.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/SMS_STS.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/SCS.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/SCSCL.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/SCSerial.cpp
+            ${FEETECH_DRIVER_PATH}/src/common/HLSCL.cpp
         )
+        if(_feetech_requested)
+            list(APPEND FEETECH_SOURCES ${FEETECH_DRIVER_PATH}/src/feetech_sts3215_adapter.cpp)
+        endif()
+        if(_feetech_hd1910_requested)
+            list(APPEND FEETECH_SOURCES ${FEETECH_DRIVER_PATH}/src/feetech_hd1910_adapter.cpp)
+        endif()
     elseif(NOT "${SROBOTIS_PERIPHERALS_MOTOR_ENABLED_DRIVERS}" STREQUAL "")
         # Only warn when user explicitly requested Feetech via enabled drivers list.
         if(NOT EXISTS "${FEETECH_DRIVER_PATH}")
@@ -808,6 +821,8 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/motorConfig.cmake"
 
 # Optional: Create a test executable
 option(BUILD_TESTS "Build test programs" ON)
+option(MOTOR_BUILD_FEETECH_DRIVER_TESTS
+    "Build hardware tests from drv_uart_feetech/test in the motor project" OFF)
 option(BUILD_DRIVER_EXTRA_TESTS "Build internal test programs for drivers" OFF)
 
 if(BUILD_TESTS)
@@ -848,6 +863,7 @@ if(BUILD_TESTS)
         target_include_directories(test_motor_uart PRIVATE
             include
             src
+            ${FEETECH_DRIVER_PATH}/include
         )
         target_link_libraries(test_motor_uart
             -Wl,--whole-archive
@@ -856,6 +872,42 @@ if(BUILD_TESTS)
             pthread
         )
         install(TARGETS test_motor_uart RUNTIME DESTINATION bin)
+
+        if(_feetech_hd1910_requested AND MOTOR_BUILD_FEETECH_DRIVER_TESTS)
+            add_executable(test_hd1910_smoke
+                ${FEETECH_DRIVER_PATH}/test/test_hd1910_smoke.c
+            )
+            set_target_properties(test_hd1910_smoke PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_hd1910_smoke PRIVATE
+                include
+                src
+                ${FEETECH_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_hd1910_smoke
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_hd1910_smoke RUNTIME DESTINATION bin)
+
+            add_executable(test_hd1910_small_move
+                ${FEETECH_DRIVER_PATH}/test/test_hd1910_small_move.c
+            )
+            set_target_properties(test_hd1910_small_move PROPERTIES LINKER_LANGUAGE CXX BUILD_RPATH "$ORIGIN/../lib")
+            target_include_directories(test_hd1910_small_move PRIVATE
+                include
+                src
+                ${FEETECH_DRIVER_PATH}/include
+            )
+            target_link_libraries(test_hd1910_small_move
+                -Wl,--whole-archive
+                motor
+                -Wl,--no-whole-archive
+                pthread
+            )
+            install(TARGETS test_hd1910_small_move RUNTIME DESTINATION bin)
+        endif()
     endif()
 
     # Add pwm motor test if driver is built

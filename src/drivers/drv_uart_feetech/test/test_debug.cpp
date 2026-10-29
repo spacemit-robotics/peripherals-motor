@@ -25,7 +25,8 @@
 
 // 常用波特率列表
 static const int BAUD_RATES[] = {1000000, 500000, 250000, 115200, 57600, 38400, 19200, 9600};
-static const int NUM_BAUD_RATES = sizeof(BAUD_RATES) / sizeof(BAUD_RATES[0]);
+static const i
+nt NUM_BAUD_RATES = sizeof(BAUD_RATES) / sizeof(BAUD_RATES[0]);
 
 void print_usage(const char *prog_name) {
     printf("Usage: %s <serial_port> [command] [options]\n", prog_name);
