@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.10)
 set(project "SCServo")
 project(${project})
 
@@ -11,8 +11,8 @@ include_directories(../include)
 
 # Header files
 file(GLOB hdrs ../include/*.h)
-# Source files
-file(GLOB srs *.cpp)
+# Common protocol sources only; model adapters are built by the motor framework.
+file(GLOB srs common/*.cpp)
 
 add_library(${project} STATIC ${hdrs} ${srs})
 

@@ -4,8 +4,8 @@
  */
 
 /**
- * @file feetech_motor_adapter.cpp
- * @brief Feetech 舵机驱动适配层 - 将 feetech 驱动注册到 motor 框架
+ * @file feetech_sts3215_adapter.cpp
+ * @brief Feetech STS3215 舵机驱动适配层
  *
  * 该文件实现了 motor.h 框架所需的接口，将 FeetechPack 类封装为
  * motor_dev 结构体，并通过 REGISTER_MOTOR_DRIVER 宏自动注册。
@@ -355,7 +355,10 @@ static const struct motor_ops feetech_ops = {.init = feetech_init,
     .get_state = feetech_get_state,
     .free = feetech_free,
     .set_paras = feetech_set_paras,
-    .get_paras = feetech_get_paras};
+    .get_paras = feetech_get_paras,
+    .get_states = nullptr,
+    .set_cmds = nullptr,
+    .get_transport_diagnostics = nullptr};
 
 // ==============================================================================
 // 工厂函数
@@ -418,3 +421,8 @@ static struct motor_dev* feetech_factory(void* args) {
 // ==============================================================================
 
 REGISTER_MOTOR_DRIVER("drv_uart_feetech", DRV_TYPE_UART, feetech_factory)
+
+static struct motor_dev* sts3215_factory(void* args) {
+    return feetech_factory(args);
+}
+REGISTER_MOTOR_DRIVER("drv_uart_feetech_sts3215", DRV_TYPE_UART, sts3215_factory)

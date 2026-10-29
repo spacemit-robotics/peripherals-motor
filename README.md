@@ -35,7 +35,7 @@
     | `src/drivers/drv_pwm_RoHS.c` | RoHS PWM 电机驱动实现 |
     | `src/drivers/drv_uart_ddt_m603c111/` | 本末 M0603C UART 电机驱动实现 |
     | `src/drivers/drv_uart_rs485_20_26/` | RS485 20/26 字节协议驱动 |
-    | `src/drivers/drv_uart_feetech/` | Feetech UART 舵机驱动实现 |
+    | `src/drivers/drv_uart_feetech/` | Feetech STS3215 与 HD1910 UART 舵机驱动实现 |
     | `src/drivers/drv_uart_xl330/` | Reachy Mini xl330 电机驱动实现 |
     | `tests/` | 各类电机的功能测试代码 |
 
@@ -123,13 +123,47 @@ target/k3-humanoid-go1.json
 ```
 示例配置使能 xl330 和飞特电机驱动；使用 M8010-A 时，将
 `enabled_drivers` 改为 `["drv_485_m8010a"]`，或在已有列表中追加该名称。
+STS3215 也可显式使用 `drv_uart_feetech_sts3215`；HD1910 应使用
+`drv_uart_feetech_hd1910`，两种舵机适配可分别选择。
+各总线硬件测试均需显式 `--driver`：`test_motor_can`（含 CANopen）、`test_motor_uart`、
+`test_motor_485`、`test_motor_pwm` 和 `test_motor_ecat`。构建仅在启用对应驱动时生成；
+每个已支持的驱动保留其原有测试轨迹。没有原有运动轨迹的驱动会被拒绝，不能套用其他
+型号的曲线。M152D133、M0603C、M0601C 的现有轨迹固定 ID 1，分别只接受 `--if`、
+`--port`、`--port`；P1010B、CANopen、XL330 和 Feetech 保留原有命令参数。
+每种轨迹都可能使电机运动，运行前应确认对应型号的活动范围和接线。
+M8010-A 原有 `test_motor_485_m8010a` 是无硬件生命周期单元测试，现作为 `test_m8010a_unit`
+保留；它没有可迁移的硬件运动轨迹，`test_motor_485` 当前只提供 M0601C 轨迹。构建 PWM GPIO
+驱动时选择 `drv_pwm_generic`（或 `pwm_generic`），运行时注册名使用 `pwm_gpio`。
+
+PR 测试 Hook 构建并运行无硬件的 `test_motor_core`，验证核心接口契约。
+手动测试 Hook 需要显式设置 `MOTOR_TEST_DRIVER`，例如
+`MOTOR_TEST_DRIVER=drv_uart_feetech_hd1910`；该 Hook 可能使电机运动。需要指定串口等
+额外参数时，直接调用 `tests/test_manual.sh --driver <驱动注册名> [驱动参数]`。
+
+### motor 驱动与测试规范
+
+- **按总线维护硬件测试入口。** `motor/tests` 中每种总线使用一个硬件测试入口：
+  `test_motor_can`（包含 CANopen）、`test_motor_uart`、`test_motor_485`、
+  `test_motor_pwm` 或 `test_motor_ecat`。协议和无硬件单元测试可独立维护。
+- **新增电机类型时追加该类型的实现。** 在对应总线入口中增加驱动名匹配和分派，
+  在该入口或 `motor/tests/profiles/` 中增加此型号自己的运动轨迹，并同步更新
+  `motor/CMakeLists.txt` 的驱动条件、源文件及构建规则。不要新增同总线的独立硬件测试入口。
+- **显式选择驱动。** 使用 `--driver <驱动注册名>` 启动该驱动对应的测试；未注册、
+  未构建或未接入该测试入口的驱动必须拒绝启动，不能回退到其他电机的默认轨迹。
+- **只修改个人开发型号。** 新增或维护某型号时，不得修改其他电机的任何参数和运动轨迹，
+  包括位置、速度、加速度、力矩、电流、运动方向、控制模式、限位和时序。各型号的允许
+  运动范围和力矩等参数不同；新型号必须依据其规格及实际机构设置自己的参数，不能直接
+  套用其他型号的数值。修改总线公共代码时，也应保持其他型号的既有行为。
+- **同步更新测试说明。** 在本 README 中写明该型号的驱动名、总线、构建和运行命令、
+  轨迹范围及所需的硬件条件，并区分编译、无硬件测试和实机验证的结果。
+
 ### 3.1 【PWM 电机测试】
 
 **前置**：硬件连接具备 PWM 驱动能力的 GPIO 引脚。
 
 **步骤 1**：运行测试程序。
 ```bash
-test_motor_pwm
+test_motor_pwm --driver pwm_gpio  # 或 pwm_RoHS；两者执行各自的既有轨迹
 ```
 
 **步骤 2**：预期现象。
@@ -163,13 +197,13 @@ test_motor_pwm
 **步骤 1**：运行示例程序。
 ```bash
 # 达妙 J4310 CAN 电机（默认测试 ID 为 0x02 的电机
-test_motor_can --driver drv_can_dm --if can0 --id 0x02
+test_motor_can --driver drv_can_dm --if can0 --id 2
 
 # 本末 M152D133 CAN 电机
-test_motor_can_ddt_m152d133
+test_motor_can --driver drv_can_ddt_m152d133 --if can0  # 固定 ID 1
 
 # 本末 P1010B CAN 电机 (注意：该程序验证多模式切换，受组帧机制限制，需注意制动和单参数配置约束)
-test_motor_can_ddt_p1010b
+test_motor_can --driver drv_can_ddt_p1010b --if can0 --id 1
 ```
 
 **步骤 2**：预期现象。
@@ -204,23 +238,42 @@ USB-485 A、B 分别与本末电机 信号线 ZH1.5*4P 的 A、B 相连，
 
 **步骤 1**：运行 Feetech 舵机测试。
 ```bash
-# 格式：test_motor_uart <串口> <波特率> <驱动名（默认drv_uart_feetech）> <电机数量>
-test_motor_uart /dev/ttyACM0 1000000 drv_uart_feetech 1
+# STS3215（旧注册名 drv_uart_feetech 也可用）
+test_motor_uart --driver drv_uart_feetech_sts3215 --port /dev/ttyACM0 --baud 1000000 --id 1
+
+# HD1910：读取反馈后相对当前位置移动指定弧度，然后 IDLE 卸力
+# 需在构建时启用 drv_uart_feetech_hd1910；确认机构有活动空间
+# --move-rad 必填，限 -0.5～0.5 rad；超范围会在打开串口前退出
+test_motor_uart --driver drv_uart_feetech_hd1910 --port /dev/ttyACM0 --baud 1000000 --id 1 --move-rad 0.3
+
 ```
+
+HD1910 多舵机同步运动与反馈用例单独构建（从 motor 目录执行）：
+
+```bash
+cmake -S src/drivers/drv_uart_feetech -B src/drivers/drv_uart_feetech/build
+cmake --build src/drivers/drv_uart_feetech/build --target test_hd1910_feedback
+src/drivers/drv_uart_feetech/build/test_hd1910_feedback /dev/ttyACM0 31 32 33
+```
+
+最后一行会使能所列舵机，并使每颗从当前位置向正方向移动 **0.1 rad**；先确认 ID、
+卸力状态及关节运动空间。用例随后同步读取 5 次反馈并尝试卸力。运行时任一 ID 缺失
+都可能导致整次同步读取失败；请先逐颗核对连接和 ID。模式、PD 配置、其他测试及
+验证范围见 [Feetech 驱动说明](src/drivers/drv_uart_feetech/README_UART_FEETECH.md#多舵机同步读写)。
 
 **步骤 2**：运行 Reachy Mini (XL330/XC330) 电机测试。
 ```bash
-test_uart_xl330 /dev/ttyACM0 # 默认测试 ID 为 10（机器人 body-yaw） 的电机
+test_motor_uart --driver drv_uart_xl330 --port /dev/ttyACM0 --id 10
 ```
 
 **步骤 3**：本末 (DDT) 串口电机测试。
 ```bash
 # 本末 M0603C UART 电机（建议使用 ID=1）
 # 警告：位置模式长期运行会存在积分漂移现象，请避免直接从开环/速度环切回位置环，必要时应重启。
-test_motor_uart_ddt_m603c111 /dev/ttyUSB0
+test_motor_uart --driver drv_uart_ddt_m603c111 --port /dev/ttyUSB0
 
 # 本末 M0601C111 RS485 电机（最高 500Hz 通信，一问一答）
-test_motor_485_ddt_m601c111 /dev/ttyUSB0 1
+test_motor_485 --driver drv_485_ddt_m601c111 --port /dev/ttyUSB0  # 固定 ID 1
 ```
 
 **步骤 4**：预期现象。
@@ -266,7 +319,7 @@ test_motor_485_ddt_m601c111 /dev/ttyUSB0 1
 
 **步骤 1**：运行运动测试。
 ```bash
-test_motor_ecat #默认测试两台电机
+test_motor_ecat --driver drv_ethercat_jmc # 默认测试两台电机
 
 -------------------------------
 用法: test_motor_ecat [选项]
@@ -297,7 +350,7 @@ test_motor_ecat #默认测试两台电机
 **步骤 1**：运行运动测试。
 ```bash
 # 默认测试 ID 为 1 的 CANOpen 电机，控制周期 10ms
-test_motor_canopen_jmc --motors 1 --cycle 10 -v
+test_motor_can --driver drv_canopen_jmc --if can0 --motors 1 --cycle 10 -v
 ```
 
 **步骤 2**：关键特性与逻辑（详见 `src/drivers/drv_canopen_jmc/README.md`）。
@@ -443,16 +496,22 @@ struct motor_state {
 
 ## 附录：电机支持型号列表
 
+下表列出驱动注册名；是否接入各总线硬件测试及对应参数请参见上文。
+
 | 类型 | 电机型号 | 对应驱动名称 | 备注 |
 | --- | --- | --- | --- |
 | **CAN** | 达妙 DM-J4310-2EC / DM4310 | `drv_can_dm` | 推荐使用 MIT 模式 |
+| **CAN** | [Encos CAN 电机](src/drivers/drv_can_encos/README_CAN_ENCOS.md) | `drv_can_encos` | 驱动参数见驱动文档 |
+| **CAN** | [AGIBOT OmniPicker](src/drivers/drv_can_agibot/README_CAN_AGIBOT.md) | `drv_can_agibot` | 驱动参数见驱动文档 |
 | **CAN** | JMC CANOpen 伺服 | `drv_canopen_jmc` | 状态机自动托管，支持 PP/PV/HM |
 | **CAN** | [本末 M152D133](src/drivers/drv_can_ddt_m152d133/README.md)  | `drv_can_ddt_m152d133` | 自动解算多圈位置，支持 PI 调节与反馈周期设置 |
 | **CAN** | [本末 P1010B](src/drivers/drv_can_ddt_p1010b/README.md)  | `drv_can_ddt_p1010b` | 组帧机制(一帧控多电机)，需注意制动及参数写入逻辑 |
 | **EtherCAT** | JMC IHSS42-EC | `drv_ethercat_jmc` | 集成式步进伺服 |
-| **UART** | Feetech STS3215  | `drv_uart_feetech` | 智能舵机 |
+| **UART** | Feetech STS3215 | `drv_uart_feetech_sts3215`（兼容 `drv_uart_feetech`） | 位置与速度控制 |
+| **UART** | [Feetech HD1910](src/drivers/drv_uart_feetech/README_UART_FEETECH.md#hd1910-专用驱动) | `drv_uart_feetech_hd1910` | 独立适配；位置控制与 IDLE 卸力，1 Mbps |
 | **UART** | Dynamixel XL330 / XC330 | `drv_uart_xl330` | Reachy Mini 专用，含 python 绑定 |
 | **UART** | [本末 M0603C](src/drivers/drv_uart_ddt_m603c111/README.md)  | `drv_uart_ddt_m603c111` | 自带安全保护阈值，需注意位置积分漂移与归位反转风险 |
+| **RS485** | [20/26 字节协议电机](src/drivers/drv_uart_rs485_20_26/README.md) | `drv_uart_rs485_20_26` | 驱动参数见驱动文档 |
 | **RS485** | [本末 M0601C111](src/drivers/drv_485_ddt_m601c111/README.md)  | `drv_485_ddt_m601c111` | 一问一答最高 500Hz，提供电流/速度/位置环控制 |
 | **RS485** | [M8010-A](src/drivers/drv_485_m8010a/README.md) | `drv_485_m8010a` | 4 Mbps，支持 BRAKE/FOC 和共享总线 |
-| **PWM** | 通用步进电机/直流电机 | `drv_pwm_demo` / `drv_pwm_RoHS` | 需 GPIO/PWM 硬件支持 |
+| **PWM** | 通用步进电机/直流电机 | `pwm_gpio` / `pwm_RoHS` | 需 GPIO/PWM 硬件支持 |
